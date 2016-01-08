@@ -88,6 +88,11 @@ Alternatively, you can install a JDK yourself using your favorite package
 manager. Make sure it's an Oracle JDK - we don't support anything else -
 and is compatible with Java 8.
 
+If you're unsure how to install the JDK, you can find instructions for
+all operating systems here: 
+https://docs.oracle.com/javase/8/docs/technotes/guides/install/install_overview.html
+Pay careful attention to anything about setting up your `PATH` or `CLASSPATH`.
+
 Next, you'll need to choose how you want to work on battlecode - using an
 IDE, using a terminal, or mixing and matching.
 
@@ -116,6 +121,20 @@ IDE, using a terminal, or mixing and matching.
 - You're good to go; you can run other ant tasks using the other `External Tools`
   targets.
 
+- If you don't see what you're looking for the dropdown, click `External Tools
+Configurations` in the dropdown, and then expand `Ant Build` on the left. You
+should be able to see the different run options. Pick The one you want and then
+press `Run`. This will add it to the dropdown for future runs.
+
+#### Caveats
+
+- The Eclipse project is a slightly odd configuration, since it's not stored in
+  the base of the project. All files are *links* to `${BATTLECODE_LOC}/filename`.
+  Launch configurations have to use `${project_loc:battlecode-scaffold}/../..`,
+  since they can only access string variables.
+
+- If you rename or add jar files to the lib directory, Eclipse gets confused.
+  You'll need to re-add them using `Project / Properties / Java Build Path`.
 
 ### Using IntelliJ IDEA
 - Install IntelliJ IDEA Community Edition:
@@ -142,10 +161,10 @@ IDE, using a terminal, or mixing and matching.
   manually: http://ant.apache.org/manual/install.html#getting
   Or, you can use your favorite package manager.
 
-  On every system you will need to set the JAVA_HOME environment variable to
+  On every system you will need to set the `JAVA_HOME` environment variable to
   point to the installation path of your JDK.
 
-  You may also need the ANT_HOME environment variable in some cases. Just set
+  You may also need the `ANT_HOME` environment variable in some cases. Just set
   this to be the path to your ant installation and you should be good to go.
 
 - Navigate to the root directory of the project, and run `ant update`.
@@ -177,7 +196,8 @@ Building after running this might help resolve issues with version changes.
 
 Local matches are the most common way to run a match - they are computed and
 rendered simultaneously on the same machine. Invoke the ant `run` target to run
-a local match, using the command line or an IDE. 
+a local match, using the command line or an IDE. For the IDE, pick `Battlecode
+Client` the same way you picked `Update Battlecode`.
 
 A dialog box will appear that allows you to choose the teams and maps to run.
 The teams and maps that appear in the dropdown boxes are those that the software
@@ -186,12 +206,35 @@ in the dropdown box, it isn't on your classpath or map path.
 
 When running a local match, you also have the option of saving the match to a
 file so that you can play it back without having to recompute it. To do this,
-check the "Save match to file" box on the main dialog and choose the location of
+check the `Save match to file` box on the main dialog and choose the location of
 the file. Note that the file will be overwritten if it already exists.
 
 If you're not using Ant, you can run the `battlecode.client.Main` class from the
 command line or an IDE. You should pass an argument `-c [CONF_FILE]` to point it
 at a battlecode configuration file.
+
+#### Client Basics
+
+After you start your match, you should see a map with a bunch of robots on it.
+The top left has controls for playing through the game: playing, pausing, skipping
+to a certain round, etc.
+
+You can click on a robot to get its detailed information. Details about that robot
+will show up on the top panel, such as its bytecode usage and its indicator strings.
+You can also hover over a map tile to get information about its location and the number
+of parts and rubble on that tile.
+
+The left pane shows the number of units of each type. In addition, the bars represent
+the number of parts each team has.
+
+Some basic animations:
+- colored lines represent attacks
+- purple rings represent broadcasts
+- circles on the map indicate parts
+- the darkness of a map tile represents how much rubble there is
+
+There are also a number of keyboard shortcuts below that you can use to play around
+with the cilent.
 
 ### Headless matches
 
@@ -212,6 +255,9 @@ at a battlecode configuration file.
 If you have a match file that you'd like to play back (i.e., from saving one
 previously) you can choose "Play back from match file" and choose the match file
 to play back. The remainder of the dialog settings will be ignored.
+
+These match files have the extension `.rms`. You can play back scrimmage match files
+that are downloaded from the website.
 
 
 ### Match Sets
@@ -250,16 +296,34 @@ affect the game in this way.
 
 You should upload a zip or jar file containing your team's source code.
 
-You should use the package name `teamXXX` where XXX is your team number.
+Your player must use the package name `teamXXX` where XXX is your team number.
 
-You can build this jar automatically using the command
+There are three ways to generate this zip or jar file:
+1. You can build this jar automatically using the command `ant -Dteam=teamXXX jar`
+2. You can create a zip file of the `src/teamXXX` directory.
+3. With Eclipse, run the `Jar Team for Upload` (dropdown under play button with toolbox)
+and for the label, make sure to pick `teamXXX` where XXX is your team number.
+4. With IntelliJ, run `Jar Player`. You first have to set your team with `Views /
+Tool Windows / Ant Build / Battlecode 2016 Scaffold / Properties / Execution`).
 
-```
-ant -Dteam=teamXXX jar
-```
+Then, go to http://www.battlecode.org/contestants/upload/ and upload this file.
+The website will attempt to compile your program and if it succeeds, then you can
+go challenge other teams to scrimmages.
 
-Alternatively, creating a zip file of the `src/teamXXX` directory should work.
+## Maps
 
+This year, the map files (the XML map files) are packaged into the battlecode jar.
+You can access the map files at
+https://github.com/battlecode/battlecode-server/tree/master/src/main/battlecode/world/resources
+if you are curious. In addition, you can write your own maps and place them in
+the `maps` folder. Any maps placed there will be discovered by the client. For more help
+about how to write your own map files, check the specs.
+
+We recommend using the map editor to create maps. To run the map editor, use `ant mapeditor`
+or run `Map Editor`. This will open up a map editor. There are video lecture tutorials on
+how to use the map editor. The map editor at the moment does not allow you to specify
+the zombie spawn schedule, so you will have to insert that yourself into the XML file
+after the XML file has been created.
 
 ## Advanced Configuration
 
@@ -332,6 +396,7 @@ engine.
 
 | Key | Effect 
 |-----|--------
+|  A  | Toggle between detailed and non-detailed client view
 |  B  | Toggle unit broadcasts
 |  D  | Toggle discrete movement mode
 |  E  | Toggle HP bars
@@ -344,6 +409,7 @@ engine.
 |  K  | Toggle attack lines
 |  R  | Show attack/sight ranges when examining a unit
 |  S  | Skip 100 rounds
+|  U  | Toggle parts
 |  V  | Toggle indicator dot/line display (none, one team, both teams)
 |  X  | Toggle unit explosions
 |  /  | Find unit by ID
@@ -355,6 +421,31 @@ engine.
 ## Scala
 
 Most contestants choose to write their players in Java, but we also support
-Scala (or a mix of Java and Scala).  If you want to use Scala, simply add a
-scala file to any of your players, and re-run `ant update`. Everything you
-need should now be installed.
+Scala (or a mix of Java and Scala). If you want to use Scala, simply add a
+.scala file to any of your players or tests, and re-run `ant update`.
+Everything you need should now be installed.
+
+### Scala with Eclipse
+
+To run Scala with Eclipse, you'll want to install the Scala IDE Plugin for
+Eclipse: http://scala-ide.org/download/current.html
+
+Make sure you install it using `Help / Install New Software`.
+
+Things should just work, although you may have trouble running the different
+`New Scala <thing>` wizards in battlecode-scaffold, because it is not
+configured as a scala project. To fix this, just make new scala files using
+the `New / File` option, and name them whatever you want your scala files to be
+named.
+
+## Scala with IntelliJ
+
+To use Scala with IntelliJ, make sure you have the Scala plugin installed and
+enabled:
+https://plugins.jetbrains.com/plugin/?id=1347
+
+When you start editing files, it will probably yell at you about "No Scala SDK
+In Module". To fix this, click the link next to the error, and add the auto-
+configured SDK. You can also add a scala SDK in `File / Project Structure /
+Battlecode / Dependencies`; note that the resources for one should be installed
+in the `lib` folder.

@@ -37,6 +37,7 @@ public class RobotPlayer {
                 // at the end of it, the loop will iterate once per game round.
                 try {
                     int fate = rand.nextInt(1000);
+                    // Check if this ARCHON's core is ready
                     if (fate % 10 == 2) {
                         // Send a message signal containing the data (6370, 6147)
                         rc.broadcastMessageSignal(6370, 6147, 80);
@@ -56,8 +57,9 @@ public class RobotPlayer {
                             if (rc.senseRubble(rc.getLocation().add(dirToMove)) >= GameConstants.RUBBLE_OBSTRUCTION_THRESH) {
                                 // Too much rubble, so I should clear it
                                 rc.clearRubble(dirToMove);
-                            // Check if I can move in this direction
+                                // Check if I can move in this direction
                             } else if (rc.canMove(dirToMove)) {
+                                // Move
                                 rc.move(dirToMove);
                             }
                         } else {
