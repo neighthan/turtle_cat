@@ -92,20 +92,13 @@ public class RobotPlayer {
 		        boolean shouldAttack = false;
 
 		        // If this robot type can attack, check for enemies within range and attack one
-		        RobotInfo[] enemiesWithinRange = rc.senseNearbyRobots(myAttackRange, enemyTeam);
-		        RobotInfo[] zombiesWithinRange = rc.senseNearbyRobots(myAttackRange, Team.ZOMBIE);
+		        RobotInfo[] enemiesWithinRange = rc.senseHostileRobots(rc.getLocation(), myAttackRange);
 		        if (myAttackRange > 0) {
 		            if (enemiesWithinRange.length > 0) {
 		                shouldAttack = true;
 		                // Check if weapon is ready
 		                if (rc.isWeaponReady()) {
 		                    rc.attackLocation(enemiesWithinRange[rand.nextInt(enemiesWithinRange.length)].location);
-		                }
-		            } else if (zombiesWithinRange.length > 0) {
-		                shouldAttack = true;
-		                // Check if weapon is ready
-		                if (rc.isWeaponReady()) {
-		                    rc.attackLocation(zombiesWithinRange[rand.nextInt(zombiesWithinRange.length)].location);
 		                }
 		            }
 		        }
@@ -120,12 +113,12 @@ public class RobotPlayer {
 		        	dirToMove = Direction.SOUTH_EAST;
 		        }
 		        // Check the rubble in that direction
-		        if (rc.senseRubble(rc.getLocation().add(dirToMove)) >= GameConstants.RUBBLE_OBSTRUCTION_THRESH) {
+		        if (rc.senseRubble(rc.getLocation().add(dirToMove)) >= GameConstants.RUBBLE_OBSTRUCTION_THRESH && rc.isCoreReady()) {
 		        	// Too much rubble, so I should clear it
 		        	rc.clearRubble(dirToMove);
 		        	// Check if I can move in this direction
-		        } else if (rc.canMove(dirToMove)) {
-		        	rc.move(dirToMove);
+		        } else {
+		        	rc.moveTowards(rc, dirToMove);
 		        }
 		        Clock.yield();
 		    } catch (Exception e) {
@@ -159,8 +152,8 @@ public class RobotPlayer {
 		                    // Too much rubble, so I should clear it
 		                    rc.clearRubble(dirToMove);
 		                // Check if I can move in this direction
-		                } else if (rc.canMove(dirToMove)) {
-		                    rc.move(dirToMove);
+		                } else {
+		                    rc.moveTowards(rc, dirToMove);
 		                }
 		            } else {
 		                // Choose a random unit to build
@@ -187,6 +180,24 @@ public class RobotPlayer {
 		        System.out.println(e.getMessage());
 		        e.printStackTrace();
 		    }
+		}
+	}
+	
+	private static void moveTowards(RobotController rc, Direction dir) {
+		Direction[] nearDirections = {dir, dir.rotateRight(), dir.rotateLeft(),
+				dir.rotateRight().rotateRight(), dir.rotateLeft().rotateLeft()};
+		boolean moved = false;
+		for (Direction nearDir : nearDirections) {
+			if (rc.canMove(nearDir) && rc.isCoreReady()) {
+				try {
+					rc.move(dir);
+				} catch (GameActionException e) {
+					e.printStackTrace(); // if core not ready
+				}
+			}
+		}
+		if (!moved) { //if you get stuck, perhaps allow moving a direction away from where you want to go?
+//			rc.move(Direction.values()[]);
 		}
 	}
 }
