@@ -21,6 +21,7 @@ public class RobotPlayer {
 	
 	private static MapLocation turtleCorner;
 //	private final static int PARTS_THRESHOLD = 100;
+	private static final int RUBBLE_LOWER_CLEAR_THRESHOLD = 40;
 	private static final Direction[] DIRECTIONS = {Direction.NORTH, Direction.NORTH_EAST, Direction.EAST,
 			Direction.SOUTH_EAST, Direction.SOUTH, Direction.SOUTH_WEST, Direction.WEST, Direction.NORTH_WEST};
 	private static Random rand;
@@ -408,8 +409,8 @@ public class RobotPlayer {
 					rc.move(nearDir);
 					return;
 				}
-			} // if couldn't move, clear some rubble TODO should we have a threshold for this?
-			if (rc.onTheMap(rc.getLocation().add(dir))) {
+			}
+			if (rc.onTheMap(rc.getLocation().add(dir)) && rc.senseRubble(rc.getLocation().add(dir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
 				rc.clearRubble(dir);
 			}
 		}
