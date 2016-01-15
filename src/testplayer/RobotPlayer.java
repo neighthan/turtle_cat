@@ -118,7 +118,7 @@ public class RobotPlayer {
 		        	rc.clearRubble(dirToMove);
 		        	// Check if I can move in this direction
 		        } else {
-		        	rc.moveTowards(rc, dirToMove);
+		        	moveTowards(rc, dirToMove);
 		        }
 		        Clock.yield();
 		    } catch (Exception e) {
@@ -153,7 +153,7 @@ public class RobotPlayer {
 		                    rc.clearRubble(dirToMove);
 		                // Check if I can move in this direction
 		                } else {
-		                    rc.moveTowards(rc, dirToMove);
+		                    moveTowards(rc, dirToMove);
 		                }
 		            } else {
 		                // Choose a random unit to build
