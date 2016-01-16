@@ -5,10 +5,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import battlecode.common.*;
 
@@ -27,6 +29,7 @@ public class RobotPlayer {
 	private static Random rand;
 	
 	private final static int NUM_INTRO_SCOUTS = 2;
+	private static final int ARCHON_RESERVED_DISTANCE_SQUARED = 3;
 	private static int fullMapRadius = GameConstants.MAP_MAX_HEIGHT*GameConstants.MAP_MAX_WIDTH;
 	private static int numArchons = 0;
 	
@@ -101,8 +104,6 @@ public class RobotPlayer {
 							introMode = false;
 							transitionMode = true;
 							turtleCorner = findBestTurtleCorner(rc);
-							rc.setIndicatorString(0, CORNERS_ALREADY_SCOUTED + "");
-							rc.setIndicatorString(1, turtleCorner + "");
 							//TODO determine fullMapRadius
 							// (also broadcast this locally to scouts when you make them? So they can message
 							// back more efficiently, if they have to)
@@ -206,7 +207,11 @@ public class RobotPlayer {
 			try {
 				if (introMode) {
 					//TODO smarter attacking (make a method to pick and attack, move if appropriate)
-					attackFirst(rc);
+					boolean attacked = attackFirst(rc);
+					if (!attacked && rc.isCoreReady() && rc.isWeaponReady()) {
+						//so that you don't try to move and get delay if you should be getting ready to attack
+						moveTowardsNearestEnemy(rc);
+					}
 				}
 				Clock.yield();				
 			} catch (GameActionException e) {
@@ -221,7 +226,14 @@ public class RobotPlayer {
 			try {
 				if (introMode) {
 					//TODO smarter attacking (make a method to pick and attack, move if appropriate)
-					attackFirst(rc);
+					boolean attacked = attackFirst(rc);
+					if (!attacked && rc.isCoreReady() && rc.isWeaponReady()) {
+						//so that you don't try to move and get delay if you should be getting ready to attack
+						boolean moved = moveTowardsNearestEnemy(rc);
+						if (!moved) {
+							moveAwayFromArchons(rc);
+						}
+					}
 				}
 				Clock.yield();				
 			} catch (GameActionException e) {
@@ -337,14 +349,17 @@ public class RobotPlayer {
 	 * If rc has no weapon delay, attacks the first robot sensed
 	 * @param rc RobotController which will attack
 	 * @throws GameActionException
+	 * @return true if this robot attacked else false
 	 */
-	private static void attackFirst(RobotController rc) throws GameActionException {
+	private static boolean attackFirst(RobotController rc) throws GameActionException {
 		if (rc.isWeaponReady()) {
 			RobotInfo[] enemies = rc.senseHostileRobots(rc.getLocation(), rc.getType().attackRadiusSquared);
 			if (enemies.length > 0) {
 				rc.attackLocation(enemies[0].location);
+				return true;
 			}
 		}
+		return false;
 	}
 
 	/**
@@ -398,22 +413,89 @@ public class RobotPlayer {
 	 * If not, moves rc in any of the four directions nearest dir, if possible.
 	 * @param rc
 	 * @param dir
+	 * @return true if rc moves else false
 	 * @throws GameActionException 
 	 */
-	private static void moveTowards(RobotController rc, Direction dir) throws GameActionException {
+	private static boolean moveTowards(RobotController rc, Direction dir) throws GameActionException {
 		if (rc.isCoreReady()) {
 			Direction[] nearDirections = {dir, dir.rotateRight(), dir.rotateLeft(),
 					dir.rotateRight().rotateRight(), dir.rotateLeft().rotateLeft()};
 			for (Direction nearDir : nearDirections) {
 				if (rc.canMove(nearDir)) {
 					rc.move(nearDir);
-					return;
+					return true;
 				}
 			}
 			if (rc.onTheMap(rc.getLocation().add(dir)) && rc.senseRubble(rc.getLocation().add(dir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
 				rc.clearRubble(dir);
 			}
 		}
+		return false;
+	}
+	
+	/**
+	 * 
+	 * @param rc
+	 * @return true if rc moves else false
+	 * @throws GameActionException
+	 */
+	private static boolean moveTowardsNearestEnemy (RobotController rc) throws GameActionException {
+		List<RobotInfo> enemies = Arrays.asList(rc.senseHostileRobots(rc.getLocation(), -1));
+		Optional<RobotInfo> nearestEnemy = enemies.stream().min((enemy1, enemy2) ->
+		rc.getLocation().distanceSquaredTo(enemy1.location) - rc.getLocation().distanceSquaredTo(enemy2.location));
+		if (nearestEnemy.isPresent()) {
+			return moveTowards(rc, rc.getLocation().directionTo(nearestEnemy.get().location));
+		}
+		return false;
+	}
+	
+	//TODO this method needs a lot of work...isn't doing things properly even if there's just an 
+	// archon making bots with open space around it. Add onto that later, when there are more bots around,
+	// others will need to move forward in order for those just next to the archon to move. 
+	private static boolean moveAwayFromArchons (RobotController rc) throws GameActionException {
+		List<RobotInfo> robots = Arrays.asList(rc.senseNearbyRobots(ARCHON_RESERVED_DISTANCE_SQUARED*2, rc.getTeam()));
+		List<RobotInfo> archons = new ArrayList<>();
+		for (RobotInfo robot : robots) {
+			if (robot.type == RobotType.ARCHON) {
+				archons.add(robot);
+			}
+		}
+		boolean tooClose = false;
+		MapLocation myLocation = rc.getLocation();
+		for (RobotInfo archon : archons) {
+			if (myLocation.distanceSquaredTo(archon.location) < ARCHON_RESERVED_DISTANCE_SQUARED) {
+				tooClose = true;
+				break;
+			}
+		}
+		
+		if (!tooClose) {
+			return false;
+		}
+		
+		List<MapLocation> possibleMoveLocations = Arrays.asList(MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), 2));
+		List<MapLocation> goodMoveLocations = new ArrayList<>();
+		
+		for (MapLocation loc : possibleMoveLocations) {
+			boolean goodLocation = true;
+			for (RobotInfo archon : archons) {
+				if (loc.distanceSquaredTo(archon.location) < ARCHON_RESERVED_DISTANCE_SQUARED) {
+					goodLocation = false;
+					break;
+				}
+			}
+			if (goodLocation) {
+				goodMoveLocations.add(loc);
+			}
+		}
+		
+		for (MapLocation loc : goodMoveLocations) {
+			if (rc.canMove(rc.getLocation().directionTo(loc))) {
+				rc.move(rc.getLocation().directionTo(loc));
+				return true;
+			}
+		}
+		return false;
 	}
 	
 	/**
