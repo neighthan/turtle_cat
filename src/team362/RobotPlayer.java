@@ -56,7 +56,28 @@ public class RobotPlayer {
 	private static final int SOUTH_EAST_CORNER = 3;
 	private static final int SOUTH_WEST_CORNER = 4;
 	
-	
+	/**
+	 * Question: Why does every unit method have an infinite loop instead of running an infinite loop in this method?
+	 * ex. In Kyle- code for this method:
+	 * while(true){
+			try{
+				if(rc.getType()==RobotType.ARCHON){
+					archonCode();
+				}else if(rc.getType()==RobotType.TURRET){
+					turretCode();
+				}else if(rc.getType()==RobotType.TTM){
+					ttmCode();
+				}else if(rc.getType()==RobotType.GUARD){
+					guardCode();
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+
+			Clock.yield();
+			* Is there a reason you did it a different way?
+	 * @param rc
+	 */
 	public static void run(RobotController rc) {
 		rand = new Random(rc.getID());
 		if (rc.getType() == RobotType.ARCHON) {
@@ -219,24 +240,57 @@ public class RobotPlayer {
 			}
 		}
 	}
-
-	private static void soldier(RobotController rc) {
+/**
+ * Working on soldier behavior:
+ * 
+ * @param rc
+ */
+	private static void soldier(RobotController rc) 
+	{
 		// do one time things here
 		while (true) {
-			try {
-				if (introMode) {
+			try 
+			{
+				if (introMode)
+				{
 					//TODO smarter attacking (make a method to pick and attack, move if appropriate)
 					boolean attacked = attackFirst(rc);
-					if (!attacked && rc.isCoreReady() && rc.isWeaponReady()) {
+					if (!attacked && rc.isCoreReady()) 
+					{
 						//so that you don't try to move and get delay if you should be getting ready to attack
 						boolean moved = moveTowardsNearestEnemy(rc);
-						if (!moved) {
+						if (!moved) 
+						{
 							moveAwayFromArchons(rc);
 						}
 					}
 				}
+				if (transitionMode)
+				{
+					
+					boolean attacked = attackFirst(rc);
+					if (!attacked && rc.isCoreReady() && rc.isWeaponReady())
+					{
+						Signal[] incomingSignals = rc.emptySignalQueue();
+						for (int i = 0; i<incomingSignals.length; i++)
+						{
+						// to do - add in if no enemies are sensed nearby move toward corner
+						}
+					}
+				}
+				if (turtleMode)
+				{
+					boolean attacked = attackFirst(rc); // to do write turtle specific attack method
+					if(!attacked && rc.isCoreReady() && rc.isWeaponReady())
+					{
+					//to do write in formations, write in if injured and no enemies sighted get healed, etc.
+					}
+				}
+				
 				Clock.yield();				
-			} catch (GameActionException e) {
+			} 
+			catch (GameActionException e) 
+			{
 				e.printStackTrace();
 			}
 		}
@@ -348,18 +402,64 @@ public class RobotPlayer {
 	/**
 	 * If rc has no weapon delay, attacks the first robot sensed
 	 * @param rc RobotController which will attack
+	 * @param RobotController 
 	 * @throws GameActionException
 	 * @return true if this robot attacked else false
 	 */
-	private static boolean attackFirst(RobotController rc) throws GameActionException {
-		if (rc.isWeaponReady()) {
+	private static boolean attackFirst(RobotController rc) throws GameActionException 
+	{
+		boolean hasAttacked = false;
+		int lowesthealth = 0;
+		boolean equalhealth = true;
+		int lowestdistance = 0;
+		int attackindex = 0;
+		if (rc.isWeaponReady())
+		{
 			RobotInfo[] enemies = rc.senseHostileRobots(rc.getLocation(), rc.getType().attackRadiusSquared);
-			if (enemies.length > 0) {
-				rc.attackLocation(enemies[0].location);
-				return true;
+			if (enemies.length > 0) 
+			{
+				for (int i = 0; i<enemies.length; i++)
+				{
+					if (!hasAttacked && (rc.getLocation()).isAdjacentTo(enemies[i].location))
+					{
+						boolean moved = false;
+						if(enemies[i].type == RobotType.STANDARDZOMBIE || enemies[i].type == RobotType.BIGZOMBIE)
+						{
+							if(rc.getRoundNum()%2 == 0 && (transitionMode || introMode))
+							{
+								moved = moveAwayFromEnemies(rc);
+							}
+						}
+						if(!moved)
+						{
+							attackindex = i;
+							hasAttacked = true;
+						}
+					}
+					if (!hasAttacked)
+					{
+						equalhealth = equalhealth && enemies[i].health == enemies[lowesthealth].health;
+						lowestdistance = rc.getLocation().distanceSquaredTo(enemies[i].location) < 
+								rc.getLocation().distanceSquaredTo(enemies[lowestdistance].location)? i : lowestdistance;	
+						lowesthealth = enemies[i].health < enemies[lowesthealth].health? i: lowesthealth;
+					}
+				}
+				if(!hasAttacked)
+				{
+					attackindex = equalhealth? lowestdistance : lowesthealth;
+				}
+				rc.attackLocation(enemies[attackindex].location);
+				hasAttacked = true;
 			}
 		}
-		return false;
+		return hasAttacked;
+	}
+
+	private static boolean moveAwayFromEnemies(RobotController rc) 
+	{
+		boolean moved = false;
+		// TODO move in opposite direction of enemies
+		return moved;
 	}
 
 	/**
