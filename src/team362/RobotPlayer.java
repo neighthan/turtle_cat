@@ -28,8 +28,9 @@ public class RobotPlayer {
 			Direction.SOUTH_EAST, Direction.SOUTH, Direction.SOUTH_WEST, Direction.WEST, Direction.NORTH_WEST};
 	private static Random rand;
 	
-	private final static int NUM_INTRO_SCOUTS = 2;
+	private final static int NUM_INTRO_SCOUTS = 4;
 	private static final int ARCHON_RESERVED_DISTANCE_SQUARED = 3;
+	private static final int ONE_SQUARE_RADIUS = 2;
 	private static int fullMapRadius = GameConstants.MAP_MAX_HEIGHT*GameConstants.MAP_MAX_WIDTH;
 	private static int numArchons = 0;
 	
@@ -87,6 +88,8 @@ public class RobotPlayer {
 			try {
 				if (introMode) {
 					processIntroMessageSignals(rc);
+					// TODO: what if, after an appropriate number of turns, the scouts haven't reported anything?
+					// should we have all of the archons move together in some direction and hope it is towards a corner?
 					if (CORNERS_ALREADY_SCOUTED.size() >= 2) {
 						List<Direction> crossDirections = Arrays.asList(Direction.NORTH_WEST,
 								Direction.NORTH_EAST, Direction.SOUTH_WEST, Direction.SOUTH_EAST);
@@ -156,21 +159,28 @@ public class RobotPlayer {
 		Direction targetDirection = Direction.NONE;
 		while (true) {
 			try {
-				if (introMode) {
+				// TODO - I've made it so the scouts will go in pairs now; not sure if we want this later or not, but they
+				// aren't avoiding enemies well enough
+				if (introMode && rc.getRoundNum() >= 40) {
+					// TODO - scouts don't pick their directions well enough - try running diffusion.
+					// one often starts already in/near a corner; if we find a corner very close, we should probably just move to it
+					// and turtle right away (even if we don't know about the others yet)
 					if (targetDirection.equals(Direction.NONE)) {
 						targetDirection = getScoutTargetDirection(rc);
 					}
 					
 					RobotInfo[] zombies = rc.senseNearbyRobots(-1, Team.ZOMBIE);
-					for (RobotInfo zombie : zombies) {
-						if (zombie.type == RobotType.ZOMBIEDEN) {
-							if (!ZOMBIE_DEN_LOCATIONS.contains(zombie.location)) {
-								ZOMBIE_DEN_LOCATIONS.add(zombie.location);
-								rc.broadcastMessageSignal(SENDING_DEN_X, zombie.location.x, fullMapRadius);
-								rc.broadcastMessageSignal(SENDING_DEN_Y, zombie.location.y, fullMapRadius);
-							}
-						}
-					}
+					// TODO: bring this back in, but only if there aren't bots that will attack the scout
+					// (otherwise, the delay makes them too vulnerable; finding corners matters more first)
+//					for (RobotInfo zombie : zombies) {
+//						if (zombie.type == RobotType.ZOMBIEDEN) {
+//							if (!ZOMBIE_DEN_LOCATIONS.contains(zombie.location)) {
+//								ZOMBIE_DEN_LOCATIONS.add(zombie.location);
+//								rc.broadcastMessageSignal(SENDING_DEN_X, zombie.location.x, fullMapRadius);
+//								rc.broadcastMessageSignal(SENDING_DEN_Y, zombie.location.y, fullMapRadius);
+//							}
+//						}
+//					}
 					
 					MapLocation corner = checkForCorner(rc, targetDirection);
 					if (corner != null) {
@@ -180,7 +190,7 @@ public class RobotPlayer {
 						// TODO or scout around for other zombie dens, kite, etc.
 						targetDirection = targetDirection.opposite();
 					}
-					moveTowards(rc, targetDirection);
+					moveCautiously(rc, targetDirection);
 				} else {
 					RobotInfo[] zombies = rc.senseNearbyRobots(-1, Team.ZOMBIE);
 					if (zombies.length > 0) {
@@ -503,12 +513,68 @@ public class RobotPlayer {
 	 * of hostile robots.
 	 * @param rc
 	 * @param dir
+	 * @throws GameActionException 
 	 */
-	private static void moveCautiously(RobotController rc, Direction dir) {
-		//TODO sense hostile robots and their attack ranges, make mapping between mapLocations you could
-		// move to and the amount of damage you would take if all robots that can attack that square did
-		// (remember, though, they will get to move one more time before you do)
-		// pick a square in the direction you want to go but where you'll take less/least damage
+	private static void moveCautiously(RobotController rc, Direction dir) throws GameActionException {
+		if (!rc.isCoreReady()) return;
+		final MapLocation myLocation = rc.getLocation();
+		final Map<MapLocation, Double> moveLocationsToWeights = new HashMap<>();
+		for (MapLocation loc : MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), ONE_SQUARE_RADIUS)) {
+			if (loc.equals(rc.getLocation())) {
+				continue;
+			}
+			if (!rc.canMove(myLocation.directionTo(loc))) {
+				continue;
+			}
+			moveLocationsToWeights.put(loc, 1.);
+		}
+		
+		if (moveLocationsToWeights.size() == 0) {
+			return;
+		}
+		
+		RobotInfo[] enemies = rc.senseHostileRobots(rc.getLocation(), -1);
+		for (MapLocation loc : moveLocationsToWeights.keySet()) {
+			for (RobotInfo enemy : enemies) {
+				if (enemy.weaponDelay < 1 && enemy.type.attackRadiusSquared >= enemy.location.distanceSquaredTo(loc)) {
+					moveLocationsToWeights.put(loc, moveLocationsToWeights.get(loc) + enemy.attackPower);
+				}
+			}
+			moveLocationsToWeights.put(loc, moveLocationsToWeights.get(loc)*distanceFromDirection(dir, myLocation.directionTo(loc)));			
+		}
+		// TODO(remember, though, the enemies will get to move one more time before you do) 
+		MapLocation bestLocation = moveLocationsToWeights.keySet().iterator().next();
+		Double lowestWeight = moveLocationsToWeights.get(bestLocation);
+		for (MapLocation loc : moveLocationsToWeights.keySet()) {
+			if (moveLocationsToWeights.get(loc) < lowestWeight) {
+				lowestWeight = moveLocationsToWeights.get(loc);
+				bestLocation = loc;
+			}
+		}
+		rc.move(myLocation.directionTo(bestLocation));
+	}
+	
+	/**
+	 * 
+	 * @param desiredDir
+	 * @param otherDir
+	 * @return Integer.MAX_VALUE if otherDir can't be rotated to desiredDir or... TODO
+	 */
+	private static double distanceFromDirection(Direction desiredDir, Direction otherDir) {
+//		double[] weights = {0.75, 0.85, 1, 1.2, 1.4};
+		double[] weights = {0.75, 0.8, .85, .9, .95};
+//		double[] weights = {1, 1.0001, 1.0002, 1.0003, 1.0004};
+		Direction leftRotation = otherDir;
+		Direction rightRotation = otherDir;
+		for (int i = 0; i <= 4; i++) {
+			if (desiredDir.equals(leftRotation) || desiredDir.equals(rightRotation)) {
+				return weights[i];
+			}
+			leftRotation = leftRotation.rotateLeft();
+			rightRotation = rightRotation.rotateRight();
+			
+		}
+		return Integer.MAX_VALUE;
 	}
 	
 	private static final Map<Integer, Direction> SIGNAL_TO_DIRECTION = new HashMap<Integer, Direction>();
