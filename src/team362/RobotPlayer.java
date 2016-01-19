@@ -284,16 +284,16 @@ public class RobotPlayer {
 						Signal[] incomingSignals = rc.emptySignalQueue();
 						for (int i = 0; i<incomingSignals.length; i++)
 						{
-						// to do - add in if no enemies are sensed nearby move toward corner
+						// TODO- add in if no enemies are sensed nearby move toward corner
 						}
 					}
 				}
 				if (turtleMode)
 				{
-					boolean attacked = attackFirst(rc); // to do write turtle specific attack method
+					boolean attacked = attackFirst(rc); // TODO write turtle specific attack method
 					if(!attacked && rc.isCoreReady() && rc.isWeaponReady())
 					{
-					//to do write in formations, write in if injured and no enemies sighted get healed, etc.
+					//TODO write in formations, write in if injured and no enemies sighted get healed, etc.
 					}
 				}
 				
