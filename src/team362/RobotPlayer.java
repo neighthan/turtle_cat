@@ -140,7 +140,7 @@ public class RobotPlayer {
 						Direction directionToTargetCorner = calculateDirectionToClosestCorner(rc);
 						rc.broadcastMessageSignal(SENDING_TARGET_DIRECTION, DIRECTION_TO_SIGNAL.get(directionToTargetCorner), 4);
 					} else {
-						if (rand.nextDouble() > .66666) { // 2:1 soldier:guard ratio
+						if (rand.nextDouble() > 1.66666) { // 2:1 soldier:guard ratio //TODO fix guard code
 							tryToBuild(rc, RobotType.GUARD);
 						} else {
 							tryToBuild(rc, RobotType.SOLDIER);
@@ -158,7 +158,7 @@ public class RobotPlayer {
 						turtleMode = true;
 					}
 					
-					if (rand.nextDouble() > .66666) { // 2:1 soldier:guard ratio
+					if (rand.nextDouble() > 1.52) { // 2:1 soldier:guard ratio //TODO Work on guard code temporarily disabled guard production
 						tryToBuild(rc, RobotType.GUARD);
 					} else {
 						tryToBuild(rc, RobotType.SOLDIER);
@@ -281,11 +281,8 @@ public class RobotPlayer {
 					boolean attacked = attackFirst(rc);
 					if (!attacked && rc.isCoreReady() && rc.isWeaponReady())
 					{
-						Signal[] incomingSignals = rc.emptySignalQueue();
-						for (int i = 0; i<incomingSignals.length; i++)
-						{
-						// TODO- add in if no enemies are sensed nearby move toward corner
-						}
+						// TODO- add in if no enemies are sensed nearby follow archon toward corner
+						moveTowardsArchon(rc);
 					}
 				}
 				if (turtleMode)
@@ -294,6 +291,7 @@ public class RobotPlayer {
 					if(!attacked && rc.isCoreReady() && rc.isWeaponReady())
 					{
 					//TODO write in formations, write in if injured and no enemies sighted get healed, etc.
+						moveAwayFromArchons(rc);
 					}
 				}
 				
@@ -305,6 +303,28 @@ public class RobotPlayer {
 			}
 		}
 	}
+
+	private static boolean moveTowardsArchon(RobotController rc) throws GameActionException
+	{
+		boolean moved = false;
+		RobotInfo[] nearbyRobots =  rc.senseNearbyRobots();
+		for (int i=0; i<nearbyRobots.length; i++)
+		{
+			if(!moved && nearbyRobots[i].type == RobotType.ARCHON)
+			{
+				Direction dir = rc.getLocation().directionTo(nearbyRobots[i].location);
+				if (nearbyRobots[i].location.distanceSquaredTo(rc.getLocation()) > 9)
+				{
+					if(rc.canMove(dir))
+					{
+						moved = moveTowards(rc, dir);
+					} 
+				}
+			}
+		}
+		return moved;
+	
+    }
 
 	private static void turret(RobotController rc) {
 		// do one time things here
@@ -562,9 +582,16 @@ public class RobotPlayer {
 	//TODO this method needs a lot of work...isn't doing things properly even if there's just an 
 	// archon making bots with open space around it. Add onto that later, when there are more bots around,
 	// others will need to move forward in order for those just next to the archon to move. 
-	private static boolean moveAwayFromArchons (RobotController rc) throws GameActionException {
-		List<RobotInfo> robots = Arrays.asList(rc.senseNearbyRobots(ARCHON_RESERVED_DISTANCE_SQUARED*2, rc.getTeam()));
+	private static boolean moveAwayFromArchons (RobotController rc) throws GameActionException 
+	{
+		double archonReserveDistance = Math.sqrt(rc.getRobotCount())*2; //todo make this more finessed 
+		List<RobotInfo> robots = Arrays.asList(rc.senseNearbyRobots((int)archonReserveDistance+1, rc.getTeam()));
 		List<RobotInfo> archons = new ArrayList<>();
+		List<Direction> validDirections = new ArrayList<>();
+		//for (int i = 0; i<DIRECTIONS.length; i++)
+		//{
+		//	validDirections.add(DIRECTIONS[i]);
+		//}
 		for (RobotInfo robot : robots) {
 			if (robot.type == RobotType.ARCHON) {
 				archons.add(robot);
@@ -573,23 +600,63 @@ public class RobotPlayer {
 		boolean tooClose = false;
 		MapLocation myLocation = rc.getLocation();
 		for (RobotInfo archon : archons) {
-			if (myLocation.distanceSquaredTo(archon.location) < ARCHON_RESERVED_DISTANCE_SQUARED) {
+			if (myLocation.distanceSquaredTo(archon.location) < archonReserveDistance) {
 				tooClose = true;
 				break;
 			}
 		}
 		
-		if (!tooClose) {
+		if (!tooClose) 
+		{
 			return false;
 		}
-		
+		//for (int i=0; i<validDirections.size();)
+		//{
+		//	for(RobotInfo arch: archons)
+		//	{
+		//		if(validDirections.get(i) == rc.getLocation().directionTo(arch.location))
+		//		{
+		//			validDirections.remove(i);
+		//			if (i < validDirections.size())
+		//			{
+		//				validDirections.remove(i);
+		//			}
+		//			if (i-1 < validDirections.size() && validDirections.size()>0)
+		//			{
+		//				if(i-1>0)
+		//				{
+		//					validDirections.remove(i-1);
+		//				}
+		//				else
+		//				{
+	    //				validDirections.remove(validDirections.size()-1);
+		//				}
+		//			}
+		//		}
+		//		else
+		//		{
+		//			i++;
+		//		}
+		//	}
+		//}
+		//if(validDirections.size()>0)
+		//{
+		//	for (int i=0; i<validDirections.size(); i++)
+		//	{
+		//		if(rc.canMove(validDirections.get(i)))
+		//		{
+		//			return moveTowards(rc, validDirections.get(i));
+		//		}
+		//	}
+		//}
+		//
 		List<MapLocation> possibleMoveLocations = Arrays.asList(MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), 2));
 		List<MapLocation> goodMoveLocations = new ArrayList<>();
 		
 		for (MapLocation loc : possibleMoveLocations) {
 			boolean goodLocation = true;
 			for (RobotInfo archon : archons) {
-				if (loc.distanceSquaredTo(archon.location) < ARCHON_RESERVED_DISTANCE_SQUARED) {
+				if (loc.distanceSquaredTo(archon.location) < archonReserveDistance) {
 					goodLocation = false;
 					break;
 				}
@@ -603,6 +670,13 @@ public class RobotPlayer {
 			if (rc.canMove(rc.getLocation().directionTo(loc))) {
 				rc.move(rc.getLocation().directionTo(loc));
 				return true;
+			}
+		}
+		for(int i=0; i<DIRECTIONS.length; i++)
+		{
+			if(rc.onTheMap(rc.getLocation().add(DIRECTIONS[i])))
+			{
+				return moveTowards(rc, DIRECTIONS[i]);
 			}
 		}
 		return false;
