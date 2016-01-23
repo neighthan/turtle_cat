@@ -3,14 +3,10 @@ package team362;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 import battlecode.common.*;
 
@@ -77,6 +73,14 @@ public class RobotPlayer {
 
 			Clock.yield();
 			* Is there a reason you did it a different way?
+			* 
+			* It saves a few bytecodes not to have to check the type each time. That's not actually 
+			* the reason that I did it, though. But now I've forgotten...there was some reason why I
+			* wanted to catch the exceptions inside of each type's run method instead of in a big, general
+			* one. Unless I think of a reason besides the couple of bytecodes, though, you can feel free
+			* to switch it, if you want
+			* 
+		
 	 * @param rc
 	 */
 	public static void run(RobotController rc) {
@@ -323,7 +327,6 @@ public class RobotPlayer {
 			}
 		}
 		return moved;
-	
     }
 
 	private static void turret(RobotController rc) {
