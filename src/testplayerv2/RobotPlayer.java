@@ -271,8 +271,8 @@ public class RobotPlayer
 					{
 						if (rc.isWeaponReady()) attackFirst(rc); // 2)
 						//TODO add in signaling!!!
-						if (rc.isCoreReady()) processSignals(rc); // 3)
-						if (rc.isCoreReady()) clearRubble(rc); // 4)
+						//if (rc.isCoreReady()) processSignals(rc); // 3)
+						//if (rc.isCoreReady()) clearRubble(rc); // 4)
 					}
 					Clock.yield();				
 				} 
@@ -283,25 +283,24 @@ public class RobotPlayer
 			}
 		}
 		//TODO FIX THIS METHOD UP WITH SIGNALS YO
-		private static boolean moveTowardsArchon(RobotController rc) throws GameActionException
+		private static void moveTowardsArchon(RobotController rc) throws GameActionException
 		{
-			boolean moved = false;
 			RobotInfo[] nearbyRobots =  rc.senseNearbyRobots();
+			int moveRadius = 9; // @Hope Calculate based on num troops
 			for (int i=0; i<nearbyRobots.length; i++)
 			{
-				if(!moved && nearbyRobots[i].type == RobotType.ARCHON)
+				if(nearbyRobots[i].type == RobotType.ARCHON)
 				{
 					Direction dir = rc.getLocation().directionTo(nearbyRobots[i].location);
-					if (nearbyRobots[i].location.distanceSquaredTo(rc.getLocation()) > 9)
+					if (nearbyRobots[i].location.distanceSquaredTo(rc.getLocation()) >= moveRadius)
 					{
-						if(rc.canMove(dir))
+						if(rc.canMove(dir) && rc.isCoreReady())
 						{
-							moved = moveTowards(rc, dir);
+							moveTowards(rc, dir);
 						} 
 					}
 				}
 			}
-			return moved;
 		
 	    }
 
@@ -423,16 +422,16 @@ public class RobotPlayer
 			int lowestDistanceIndex = 0;
 			int attackIndex = -1000000;
 			boolean moved = false;
-			if (rc.isWeaponReady())
+			RobotInfo[] enemies = rc.senseHostileRobots(rc.getLocation(), rc.getType().attackRadiusSquared);
+			if (rc.isWeaponReady() && enemies.length > 0)
 			{
-				RobotInfo[] enemies = rc.senseHostileRobots(rc.getLocation(), rc.getType().attackRadiusSquared);
 				for (int i = 0; attackIndex < 0 && i<enemies.length; i++)
 				{
 					if (enemies[i].type == RobotType.ZOMBIEDEN)
 					{
 						rc.broadcastSignal(rc.getType().sensorRadiusSquared*2);
 					}
-					if (rc.canAttackLocation(enemies[attackIndex].location))
+					if (rc.canAttackLocation(enemies[i].location))
 					{
 						if (attackIndex < 0 && (rc.getLocation()).isAdjacentTo(enemies[i].location))
 						{
