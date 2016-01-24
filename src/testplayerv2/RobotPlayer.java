@@ -556,7 +556,7 @@ public class RobotPlayer
 		{
 			if (rc.isCoreReady()) 
 			{
-				int lowestRubbleIndex = -1;
+				int lowestRubbleIndex = 0;
 				Direction[] nearDirections = {dir, dir.rotateRight(), dir.rotateLeft(),
 						dir.rotateRight().rotateRight(), dir.rotateLeft().rotateLeft(),
 						dir.rotateRight().rotateRight().rotateRight(), dir.rotateLeft().rotateLeft().rotateLeft()};
