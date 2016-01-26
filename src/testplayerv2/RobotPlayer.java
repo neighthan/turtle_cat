@@ -19,33 +19,41 @@ import battlecode.common.Signal;
 import battlecode.common.Team;
 public class RobotPlayer 
 {
-	// Strategic stages
-		private static boolean introMode = true;
-		private static boolean transitionMode = false;
-		private static boolean turtleMode = false;
+	import java.util.ArrayList;
+	import java.util.Arrays;
+	import java.util.HashMap;
+	import java.util.List;
+	import java.util.Map;
+	import java.util.Optional;
+	import java.util.Random;
+
+	import battlecode.common.*;
+
+	public class RobotPlayer {
+		
 		
 		private static MapLocation turtleCorner;
 //		private final static int PARTS_THRESHOLD = 100;
 		private static final int RUBBLE_LOWER_CLEAR_THRESHOLD = 40;
 		private static final Direction[] DIRECTIONS = {Direction.NORTH, Direction.NORTH_EAST, Direction.EAST,
 				Direction.SOUTH_EAST, Direction.SOUTH, Direction.SOUTH_WEST, Direction.WEST, Direction.NORTH_WEST};
-		private static final Direction[] OPPOSITE_DIRECTIONS = {Direction.SOUTH, Direction.SOUTH_WEST, Direction.WEST, 
-					Direction.NORTH_WEST,Direction.NORTH, Direction.NORTH_EAST, Direction.EAST, Direction.SOUTH_EAST};
 		private static Random rand;
+		private final static MapLocation LOCATION_NONE = new MapLocation(Integer.MAX_VALUE, Integer.MAX_VALUE);
+		// because there is no .NONE; MapLocations are only offset by +/- 500, and size <= 80, so this won't be taken
 		
 		private final static int NUM_INTRO_SCOUTS = 4;
-		private static final int ARCHON_RESERVED_DISTANCE_SQUARED = 10;
+		private static final int ARCHON_RESERVED_DISTANCE_SQUARED = 9;
 		private static final int ONE_SQUARE_RADIUS = 2;
 		private static int fullMapRadius = GameConstants.MAP_MAX_HEIGHT*GameConstants.MAP_MAX_WIDTH;
 		private static int numArchons = 0;
+		private static Team myTeam;
 		
 		private static final int NUM_TURNS_TO_CHECK_FOR_ZOMBIES = 3;
 		
 		private static final List<MapLocation> ZOMBIE_DEN_LOCATIONS = new ArrayList<>();
+		private static final List<MapLocation> SCOUTED_CORNERS = new ArrayList<>();
 		
-		private static final List<MapLocation> CORNERS_ALREADY_SCOUTED = new ArrayList<>();
-		
-		// Commands for signals
+		// First arguments for signals - identifiers of what will be sent
 		private static final int SENDING_DEN_X = 1;
 		private static final int SENDING_DEN_Y = 2;
 		private static final int SENDING_TURTLE_X = 3;
@@ -56,11 +64,18 @@ public class RobotPlayer
 		private static final int SENDING_PART_LOCATION_X = 8;
 		private static final int SENDING_PART_LOCATION_Y = 9;
 		private static final int SENDING_PART_LOCATION_VALUE = 10;
+		private static final int SENDING_MODE = 11;
 		
-		private static final int NORTH_EAST_CORNER = 1;
-		private static final int NORTH_WEST_CORNER = 2;
-		private static final int SOUTH_EAST_CORNER = 3;
-		private static final int SOUTH_WEST_CORNER = 4;
+		// Second arguments for signals - meanings of the number sent
+		private static final int INTRO_MODE = 0;
+		private static final int TRANSITION_MODE = 1;
+		private static final int TURTLE_MODE = 2;
+		private static final int NORTH_EAST_CORNER = 3;
+		private static final int NORTH_WEST_CORNER = 4;
+		private static final int SOUTH_EAST_CORNER = 5;
+		private static final int SOUTH_WEST_CORNER = 6;	
+		
+		private static int currentMode = INTRO_MODE;
 		
 		/**
 		 * @param rc
@@ -89,7 +104,7 @@ public class RobotPlayer
 		 * @Nathan - Should we adjust these priorities (specifically where should building troops be?)
 		 * TODO for archons - 
 		 * 1) repair, always run away from enemies (excluding scouts)
-		 * 2) signal location
+		 * 2) signal turtle location
 		 * 3) pick up adjacent parts and activate neutral units
 		 * 4) move to turtle corner
 		 * 5) build troops
@@ -105,11 +120,11 @@ public class RobotPlayer
 				// if senses enemy troop that is not a scout, run away from it
 			repairFirst(rc);
 			boolean moved =  moveAwayFromEnemies(rc);
-				// 2) signal location - only if all intro scouts have been built (guaranteed by turn 90)
-			if (rc.getRoundNum() > 90)
+				// 2) signal turtle location - every 25 turns 
+			if (rc.getRoundNum() > 90 && rc.getRoundNum() % 25 == 0)
 			{
 				// @Hope - fix broadcast signal range - make it calculated based on number of troops
-				rc.broadcastSignal(rc.getType().sensorRadiusSquared*2);
+				rc.broadcastMessageSignal(turtleCorner.x, turtleCorner.y, rc.getType().sensorRadiusSquared*2);
 			}
 				// 3) Pick up parts on current square, check for adjacent parts and try to collect them
 			if (!moved && rc.isCoreReady()) moved = collectParts(rc);
@@ -258,6 +273,7 @@ public class RobotPlayer
 	 */
 		private static void soldier(RobotController rc) 
 		{
+			MapLocation turtleCorner = LOCATION_NONE;
 			while (true) 
 			{
 				try 
@@ -271,8 +287,8 @@ public class RobotPlayer
 					{
 						if (rc.isWeaponReady()) attackFirst(rc); // 2)
 						//TODO add in signaling!!!
-						//if (rc.isCoreReady()) processSignals(rc); // 3)
-						//if (rc.isCoreReady()) clearRubble(rc); // 4)
+						if (turtleCorner != LOCATION_NONE) processSignals(rc); // 3)
+						if (rc.isCoreReady()) clearRubble(rc); // 4)
 					}
 					Clock.yield();				
 				} 
@@ -436,7 +452,7 @@ public class RobotPlayer
 						if (attackIndex < 0 && (rc.getLocation()).isAdjacentTo(enemies[i].location))
 						{
 							attackIndex = i;
-							//TODO test this part
+							//TODO test this part - work on kiting
 							if ((enemies[i].type == RobotType.BIGZOMBIE || enemies[i].type == RobotType.STANDARDZOMBIE)
 									&& rc.getRoundNum()%2 == 0)
 							{
