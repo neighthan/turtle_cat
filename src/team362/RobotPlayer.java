@@ -218,9 +218,9 @@ public class RobotPlayer {
 //							}
 //						}
 //					}
-					int start = Clock.getBytecodeNum();
+//					int start = Clock.getBytecodeNum();
 					MapLocation corner = checkForCorner(rc, targetDirection);
-					System.out.println("CheckforCorner: " + (Clock.getBytecodeNum() - start));
+//					System.out.println("CheckforCorner: " + (Clock.getBytecodeNum() - start));
 					if (corner != null) {
 						rc.broadcastMessageSignal(SENDING_CORNER_X, corner.x, fullMapRadius);
 						rc.broadcastMessageSignal(SENDING_CORNER_Y, corner.y, fullMapRadius);
@@ -228,9 +228,9 @@ public class RobotPlayer {
 						// TODO or scout around for other zombie dens, kite, etc.
 						targetDirection = targetDirection.opposite();
 					}
-					start = Clock.getBytecodeNum();
+//					start = Clock.getBytecodeNum();
 					moveCautiously(rc, targetDirection);
-					System.out.println("moveCautiously: " + (Clock.getBytecodeNum() - start));
+//					System.out.println("moveCautiously: " + (Clock.getBytecodeNum() - start));
 				} else { // not intro mode; do kiting
 					RobotInfo[] zombies = rc.senseNearbyRobots(-1, Team.ZOMBIE);
 					if (zombies.length > 0) {

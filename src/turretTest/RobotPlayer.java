@@ -92,20 +92,22 @@ public class RobotPlayer {
 	public static void run(RobotController rc) {
 		rand = new Random(rc.getID());
 		myTeam = rc.getTeam();
-		if (rc.getType() == RobotType.ARCHON) {
-			archon(rc);
-		} else if (rc.getType() == RobotType.SCOUT) {
-			scout(rc);
-		} else if (rc.getType() == RobotType.TURRET) {
-			turret(rc);
-		} else if (rc.getType() == RobotType.TTM) {
-			ttm(rc);
-		} else if (rc.getType() == RobotType.SOLDIER) {
-			soldier(rc);
-		} else if (rc.getType() == RobotType.GUARD) {
-			guard(rc);
-		} else if (rc.getType() == RobotType.VIPER) {
-			viper(rc);
+		while (true) {
+			if (rc.getType() == RobotType.ARCHON) {
+				archon(rc);
+			} else if (rc.getType() == RobotType.SCOUT) {
+				scout(rc);
+			} else if (rc.getType().equals(RobotType.TURRET)) {
+				turret(rc);
+			} else if (rc.getType().equals(RobotType.TTM)) {
+				ttm(rc);
+			} else if (rc.getType() == RobotType.SOLDIER) {
+				soldier(rc);
+			} else if (rc.getType() == RobotType.GUARD) {
+				guard(rc);
+			} else if (rc.getType() == RobotType.VIPER) {
+				viper(rc);
+			}			
 		}
 	}
 
@@ -302,7 +304,16 @@ public class RobotPlayer {
 					boolean attacked = attackFirst(rc); // TODO write turtle specific attack method
 					if(!attacked && rc.isCoreReady() && rc.isWeaponReady()) {
 					//TODO write in formations, write in if injured and no enemies sighted get healed, etc.
-						moveAwayFromArchons(rc);
+						boolean moved = moveAwayFromArchons(rc);
+						if (!moved && rc.isCoreReady()) { // may have already cleared rubble in moveAway
+							MapLocation[] nearbyLocs = MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), ONE_SQUARE_RADIUS);
+							for (MapLocation nearbyLoc : nearbyLocs) {
+								if (rc.senseRubble(nearbyLoc) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
+									rc.clearRubble(rc.getLocation().directionTo(nearbyLoc));
+									break;
+								}
+							}
+						}
 					}
 				}
 				Clock.yield();				
@@ -340,42 +351,48 @@ public class RobotPlayer {
 
 	private static void turret(RobotController rc) {
 		// do one time things here
-		while (true) {
-			try {
-				boolean attacked = turretAttack(rc);
-				if (!attacked && rc.isWeaponReady()) {
-					Signal[] signals = rc.emptySignalQueue();
-					for (Signal s : signals) {
-						if (!s.getTeam().equals(myTeam) && rc.canAttackLocation(s.getLocation())) {
-							rc.attackLocation(s.getLocation());
-							break;
-						}
+		try {
+			boolean attacked = turretAttack(rc);
+			if (!attacked && rc.isWeaponReady()) {
+				Signal[] signals = rc.emptySignalQueue();
+				for (Signal s : signals) {
+					if (!s.getTeam().equals(myTeam) && rc.canAttackLocation(s.getLocation())) {
+						rc.attackLocation(s.getLocation());
+						attacked = true;
+						break;
 					}
 				}
-				Clock.yield();				
-			} catch (GameActionException e) {
-				e.printStackTrace();
 			}
+			if (!attacked && rc.isWeaponReady() && !isFarEnoughFromArchons(rc)) {
+				//TODO - only pack if you could move futher away 
+				// (turrets are getting too stuck)
+				rc.pack();
+			}
+			Clock.yield();				
+		} catch (GameActionException e) {
+			e.printStackTrace();
 		}
 	}
 
 	private static void ttm(RobotController rc) {
 		// do one time things here
-		while (true) {
-			try {
-				boolean moved = moveAwayFromArchons(rc);
-				if (!moved) {
-					rc.pack();
+		try {
+			boolean moved = moveAwayFromArchons(rc);
+			if (!moved) {
+				if (isFarEnoughFromArchons(rc)) {
+					rc.unpack();
+				} else if (rc.senseHostileRobots(rc.getLocation(), -1).length > 0) {
+					rc.unpack();
 				}
-				Clock.yield();				
-			} catch (GameActionException e) {
-				e.printStackTrace();
 			}
+			Clock.yield();				
+		} catch (GameActionException e) {
+			e.printStackTrace();
 		}
 	}
 
 	private static void viper(RobotController rc) {
-		// in case we use vipers later
+		// in case we use vipers later or one is activated by an archon
 		// do one time things here
 		while (true) {
 //			try {
@@ -628,7 +645,8 @@ public class RobotPlayer {
 					return true;
 				}
 			}
-			if (rc.onTheMap(rc.getLocation().add(dir)) && rc.senseRubble(rc.getLocation().add(dir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
+			if (!rc.getType().equals(RobotType.TTM) && 
+					rc.onTheMap(rc.getLocation().add(dir)) && rc.senseRubble(rc.getLocation().add(dir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
 				rc.clearRubble(dir);
 			}
 		}
@@ -939,5 +957,15 @@ public class RobotPlayer {
 			}
 		}
 		return false;
+	}
+	
+	private static boolean isFarEnoughFromArchons(RobotController rc) {
+		RobotInfo[] nearbyTeam = rc.senseNearbyRobots(ARCHON_RESERVED_DISTANCE_SQUARED, myTeam);
+		for (RobotInfo robot : nearbyTeam) {
+			if (robot.type.equals(RobotType.ARCHON)) { // too close to archons
+				return false;
+			}
+		}
+		return true;
 	}
 }
