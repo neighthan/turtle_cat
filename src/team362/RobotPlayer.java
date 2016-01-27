@@ -28,6 +28,8 @@ public class RobotPlayer {
 	private static int NUM_KITING_SCOUTS = 4;
 	private static final int ARCHON_RESERVED_DISTANCE_SQUARED = 9;
 	private static final int ONE_SQUARE_RADIUS = 2;
+	private static final int PART_COLLECTION_RADIUS_SQUARED = 9;
+	private static final int ACTIVATION_RADIUS_SQUARED = 9; 
 	private static int fullMapRadius = GameConstants.MAP_MAX_HEIGHT*GameConstants.MAP_MAX_WIDTH;
 	private static int numArchons = 0;
 	private static Team myTeam;
@@ -186,7 +188,7 @@ public class RobotPlayer {
 //					int start = Clock.getBytecodeNum();
 					MapLocation corner = checkForCorner(rc, targetDirection);
 //					System.out.println("CheckforCorner: " + (Clock.getBytecodeNum() - start));
-					if (corner != null) {
+					if (!corner.equals(LOCATION_NONE)) {
 						rc.broadcastMessageSignal(SENDING_CORNER_X, corner.x, fullMapRadius);
 						rc.broadcastMessageSignal(SENDING_CORNER_Y, corner.y, fullMapRadius);
 						// head to opposite in case other scout didn't make it
@@ -234,7 +236,8 @@ public class RobotPlayer {
 			}
 		}
 	}
-/**
+	
+	/**
 	 * Working on soldier behavior:
 	 * 1) If about to die and infected and senses nearby friendly robots, self destruct
 	 * 2) Attack if possible
@@ -262,7 +265,7 @@ public class RobotPlayer {
 					
 					if (rc.isWeaponReady()) attackFirst(rc); // 2)
 					processFighterSignals(rc); //3)
-					if (turtleCorner != LOCATION_NONE)
+					if (!turtleCorner.equals(LOCATION_NONE))
 					{
 						int minRadius = 25;
 						int maxRadius = 25 + rc.getRobotCount()/7;
@@ -281,7 +284,7 @@ public class RobotPlayer {
 					{
 						if(rc.isCoreReady() && currentMode == TRANSITION_MODE) moveTowardsArchon(rc);
 					}
-					//if (rc.isCoreReady()) clearRubble(rc); // 4)
+//					if (rc.isCoreReady()) clearRubble(rc); // 4)
 				}
 				Clock.yield();				
 			} 
@@ -889,8 +892,9 @@ public class RobotPlayer {
 		DIRECTION_TO_SIGNAL.put(Direction.SOUTH_WEST, SOUTH_WEST_CORNER);
 		DIRECTION_TO_SIGNAL.put(Direction.SOUTH_EAST, SOUTH_EAST_CORNER);
 	}
+	
 	/**
-	 * Currently we use two intro scouts, so this method identifies two opposite corners to which
+	 * Currently we use two pairs of intro scouts, so this method identifies two opposite corners to which
 	 * those scouts should be sent. So that no extra communication is needed, one archon will calculate
 	 * one of the corners as closest for him and all of the other archons will calculate the other corner
 	 * so that the two scouts are guaranteed to move towards opposite corners.
@@ -934,10 +938,9 @@ public class RobotPlayer {
 	}
 	
 	/**
-	 * (Returning null is bad practice...but they didn't give us a MapLocation.NONE or such =\ )
 	 * @param rc
 	 * @param dirToCorner
-	 * @return the location of the corner in the given direction or null if it is not a corner
+	 * @return the location of the corner in the given direction or LOCATION_NONE if it is not a corner
 	 * @throws GameActionException
 	 */
 	private static MapLocation checkForCorner(RobotController rc, Direction dirToCorner) throws GameActionException {
@@ -956,7 +959,7 @@ public class RobotPlayer {
 		if (isCorner) {
 			return corner;
 		} else {
-			return null;
+			return LOCATION_NONE;
 		}
 	}
 	
@@ -1037,10 +1040,9 @@ public class RobotPlayer {
 	 */
 	private static void collectParts(RobotController rc) throws GameActionException 
 	{
-		int partRadiusSquared = 9; 
 		int lowestDistanceIndex = 0;
 		MapLocation myLocation = rc.getLocation();
-		MapLocation[] parts = rc.sensePartLocations(partRadiusSquared);
+		MapLocation[] parts = rc.sensePartLocations(PART_COLLECTION_RADIUS_SQUARED);
 		for (int i=0; i < parts.length; i++)
 		{
 			if (myLocation.distanceSquaredTo(parts[i]) < myLocation.distanceSquaredTo(parts[lowestDistanceIndex]))
@@ -1058,6 +1060,7 @@ public class RobotPlayer {
 			moveTowards(rc, myLocation.directionTo(parts[lowestDistanceIndex]));
 		}
 	}
+	
 	/**
 	 * Archon checks within a squared radius of 9 for neutral units. If neutral archon, always head toward
 	 * and activate. If no neutral archons are detected, activate adjacent units. If no adjacent units,
@@ -1068,11 +1071,10 @@ public class RobotPlayer {
 	 */
 	private static void activateUnits(RobotController rc) throws GameActionException 
 	{
-		int senseRobotRadiusSquared = 9; 
 		int lowestDistanceIndex = 0;
 		MapLocation myLocation = rc.getLocation();
 		MapLocation robotLocation;
-		RobotInfo[] robots = rc.senseNearbyRobots(senseRobotRadiusSquared, Team.NEUTRAL);
+		RobotInfo[] robots = rc.senseNearbyRobots(ACTIVATION_RADIUS_SQUARED, Team.NEUTRAL);
 		for (int i=0; i < robots.length; i++)
 		{
 			robotLocation = robots[i].location;
