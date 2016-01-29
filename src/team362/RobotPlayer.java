@@ -127,7 +127,7 @@ public class RobotPlayer {
 				if (currentMode == INTRO_MODE) 
 				{
 					archonIntroMode(rc);
-					if (turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
+//					if (turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
 				} 
 				// 4) Move to turtle corner
 				if (currentMode == TRANSITION_MODE) 
@@ -300,7 +300,7 @@ public class RobotPlayer {
 					}
 					// 6)
 					clearRubble(rc);
-					if(turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
+//					if(turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
 				}
 				rc.setIndicatorString(0, "Turtle x: " +turtleCorner.x + "Turtle y: " + turtleCorner.y );
 				rc.setIndicatorString(1, "Current Mode" + currentMode);
@@ -343,7 +343,7 @@ public class RobotPlayer {
 			}
 			rc.setIndicatorString(0, "Turtle x: " +turtleCorner.x + "Turtle y: " + turtleCorner.y );
 			rc.setIndicatorString(1, "I am a turret");
-			if (turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
+//			if (turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
 			Clock.yield();				
 		} catch (GameActionException e) {
 			e.printStackTrace();

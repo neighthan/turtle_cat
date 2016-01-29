@@ -38,6 +38,8 @@ public class RobotPlayer {
 	private static final List<MapLocation> RESERVED_LOCATIONS = new ArrayList<>();
 	private static final List<MapLocation> SCOUT_KITING_LOCATIONS = new ArrayList<>();
 	private static MapLocation turtleCorner = LOCATION_NONE;
+	private static Direction KITING_DIRECTION = Direction.NONE;
+	private static final int PARTS_THRESHOLD_TO_BUILD = 160;
 	
 	// First arguments for signals - identifiers of what will be sent
 	private static final int SENDING_DEN_X = 1;
@@ -53,6 +55,7 @@ public class RobotPlayer {
 	private static final int SENDING_MODE = 11;
 	private static final int SENDING_SCOUT_KITING_LOCATION_X = 12;
 	private static final int SENDING_SCOUT_KITING_LOCATION_Y = 13;
+	private static final int SENDING_KITING_DIRECTION = 14;
 	
 	// Second arguments for signals - meanings of the number sent
 	private static final int INTRO_MODE = 0;
@@ -118,7 +121,10 @@ public class RobotPlayer {
 								fullMapRadius = turtleCorner.distanceSquaredTo(corner);
 								int deltaX = Math.abs(turtleCorner.x - corner.x);
 								int deltaY = Math.abs(turtleCorner.y - corner.y);
-								SCOUT_KITING_LOCATIONS.add(new MapLocation(Math.min(turtleCorner.x, corner.x) + deltaX/2, Math.min(turtleCorner.y, corner.y) + deltaY/2));
+								SCOUT_KITING_LOCATIONS.add(new MapLocation(Math.min(turtleCorner.x, corner.x) + deltaX/3, Math.min(turtleCorner.y, corner.y) + deltaY/3));
+								SCOUT_KITING_LOCATIONS.add(new MapLocation(Math.min(turtleCorner.x, corner.x) + deltaX/3, Math.min(turtleCorner.y, corner.y) + 7));
+								SCOUT_KITING_LOCATIONS.add(new MapLocation(Math.min(turtleCorner.x, corner.x) + 7, Math.min(turtleCorner.y, corner.y) + deltaY/3));								
+								KITING_DIRECTION = turtleCorner.directionTo(corner);
 								break;
 							}
 						}
@@ -150,7 +156,7 @@ public class RobotPlayer {
 						currentMode = TURTLE_MODE;
 						rc.broadcastMessageSignal(SENDING_MODE, TURTLE_MODE, rc.getType().sensorRadiusSquared);
 					} else {
-						moveTowards(rc, rc.getLocation().directionTo(turtleCorner));						
+						moveTowards(rc, rc.getLocation().directionTo(turtleCorner));
 					}
 					
 					if (rand.nextDouble() > 1.52) { // 2:1 soldier:guard ratio //TODO Work on guard code temporarily disabled guard production
@@ -164,7 +170,9 @@ public class RobotPlayer {
 					} else if (rc.senseHostileRobots(rc.getLocation(), -1).length > 0) {
 						tryToBuild(rc, RobotType.SOLDIER);
 					} else {
-						tryToBuild(rc, RobotType.TURRET);						
+						if (rc.getTeamParts() > PARTS_THRESHOLD_TO_BUILD) {
+							tryToBuild(rc, RobotType.TURRET);													
+						}
 					}
 					clearNearbyRubble(rc);
 				}
@@ -181,9 +189,10 @@ public class RobotPlayer {
 	private static void scout(RobotController rc) {
 		// do one time things here
 		Direction targetDirection = Direction.NONE;
+		MapLocation kitingLocation = LOCATION_NONE;
 		while (true) {
 			try {
-				if (targetDirection.equals(Direction.NONE) && currentMode == INTRO_MODE) {
+				if (currentMode == INTRO_MODE && targetDirection.equals(Direction.NONE)) {
 					targetDirection = processScoutMessages(rc);
 				} else {
 					processScoutMessages(rc);					
@@ -232,10 +241,12 @@ public class RobotPlayer {
 						turnsToCheckForZombies--;
 						leadZombiesToEnemy(rc);
 					} else {
-						if (SCOUT_KITING_LOCATIONS.size() > 0) {
-							moveTowards(rc, rc.getLocation().directionTo(SCOUT_KITING_LOCATIONS.get(0)));
+						if (SCOUT_KITING_LOCATIONS.size() > 0 && kitingLocation.equals(LOCATION_NONE)) {
+							int randomKiting = (int) (rand.nextDouble()*(SCOUT_KITING_LOCATIONS.size()));
+							kitingLocation = SCOUT_KITING_LOCATIONS.get(randomKiting);
 							rc.setIndicatorString(0, SCOUT_KITING_LOCATIONS + "");
 						}
+						moveTowards(rc, rc.getLocation().directionTo(kitingLocation));
 					}
 				}
 				Clock.yield();				
@@ -346,6 +357,7 @@ public class RobotPlayer {
 			processFighterSignals(rc);
 			boolean attacked = turretAttack(rc);
 			if (!attacked && rc.isWeaponReady()) {
+				int start = Clock.getBytecodeNum();
 				Signal[] signals = rc.emptySignalQueue();
 				for (Signal s : signals) {
 					if (!s.getTeam().equals(myTeam) && rc.canAttackLocation(s.getLocation())) {
@@ -354,13 +366,14 @@ public class RobotPlayer {
 						break;
 					}
 				}
+//				System.out.println("Turret Bytecode used: " + (Clock.getBytecodeNum()-start));
 			}
 			if (!attacked && rc.isWeaponReady() && RESERVED_LOCATIONS.contains(rc.getLocation())) {
 				//TODO - only pack if you could move further away 
 				// (turrets are getting too stuck)
 				rc.pack();
 			}
-			Clock.yield();				
+			Clock.yield();
 		} catch (GameActionException e) {
 			e.printStackTrace();
 		}
@@ -475,7 +488,7 @@ public class RobotPlayer {
 				}
 			}
 		}
-		System.out.println("Bytecode used: " + (Clock.getBytecodeNum()-bytecodeStart));
+//		System.out.println("Bytecode used: " + (Clock.getBytecodeNum()-bytecodeStart));
 	}
 	
 	/**
@@ -507,9 +520,9 @@ public class RobotPlayer {
 				final int[] message = s.getMessage();
 				if (message[0] == SENDING_MODE) {
 					currentMode = message[1];
-				} else if (message[0] == SENDING_TURTLE_X) {
+				} else if (message[0] == SENDING_TURTLE_X && !turtleCorner.equals(LOCATION_NONE)) {
 					turtleX = message[1];
-				} else if (message[0] == SENDING_TURTLE_Y) {
+				} else if (message[0] == SENDING_TURTLE_Y && !turtleCorner.equals(LOCATION_NONE)) {
 					turtleY = message[1];
 				} else if (message[0] == SENDING_CORNER_X) {
 					cornerX = message[1];
@@ -525,6 +538,8 @@ public class RobotPlayer {
 					scoutKitingLocationY = message[1];
 				} else if (message[0] == SENDING_TARGET_DIRECTION) {
 					targetDirection = SIGNAL_TO_DIRECTION.get(message[1]);
+				} else if (message[0] == SENDING_KITING_DIRECTION) {
+					KITING_DIRECTION = SIGNAL_TO_DIRECTION.get(message[1]);
 				}
 				//there may be multiple scout kiting locations sent at once
 				if (scoutKitingLocationX > Integer.MIN_VALUE && scoutKitingLocationY > Integer.MIN_VALUE) {
@@ -689,6 +704,7 @@ public class RobotPlayer {
 						for (MapLocation scoutKitingLoc : SCOUT_KITING_LOCATIONS) {
 							rc.broadcastMessageSignal(SENDING_SCOUT_KITING_LOCATION_X, scoutKitingLoc.x, ONE_SQUARE_RADIUS);
 							rc.broadcastMessageSignal(SENDING_SCOUT_KITING_LOCATION_Y, scoutKitingLoc.y, ONE_SQUARE_RADIUS);
+							rc.broadcastMessageSignal(SENDING_KITING_DIRECTION, DIRECTION_TO_SIGNAL.get(KITING_DIRECTION), ONE_SQUARE_RADIUS);
 						}
 					}
 					return true;
@@ -736,8 +752,12 @@ public class RobotPlayer {
 	private static void leadZombiesToEnemy(RobotController rc) throws GameActionException {
 		//TODO stop anti-kiting
 		if (rc.isCoreReady()) {
-			Direction dirAwayFromTurtleCorner = rc.getLocation().directionTo(turtleCorner).opposite();
-			moveTowards(rc, dirAwayFromTurtleCorner);
+			if (!KITING_DIRECTION.equals(Direction.NONE)) {
+				moveTowards(rc, KITING_DIRECTION);
+			} else {
+				Direction dirAwayFromTurtleCorner = rc.getLocation().directionTo(turtleCorner).opposite();
+				moveTowards(rc, dirAwayFromTurtleCorner);				
+			}
 		}
 	}
 	
@@ -761,9 +781,13 @@ public class RobotPlayer {
 				return true;
 			}
 		}
-		if (!rc.getType().equals(RobotType.TTM) && 
-				rc.onTheMap(rc.getLocation().add(dir)) && rc.senseRubble(rc.getLocation().add(dir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
-			rc.clearRubble(dir);
+		if (!rc.getType().equals(RobotType.TTM)) {
+			for (Direction nearDir : nearDirections) {
+				if (rc.onTheMap(rc.getLocation().add(nearDir)) && rc.senseRubble(rc.getLocation().add(nearDir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
+					rc.clearRubble(nearDir);
+					return false;
+				}				
+			}
 		}
 		return false;
 	}
