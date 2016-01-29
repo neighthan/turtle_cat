@@ -36,6 +36,7 @@ public class RobotPlayer {
 	
 	private static final List<MapLocation> ZOMBIE_DEN_LOCATIONS = new ArrayList<>();
 	private static final List<MapLocation> SCOUTED_CORNERS = new ArrayList<>();
+	private static final List<MapLocation> SCOUT_KITING_LOCATIONS = new ArrayList<>();
 	
 	// First arguments for signals - identifiers of what will be sent
 	private static final int SENDING_DEN_X = 1;
@@ -49,7 +50,8 @@ public class RobotPlayer {
 	private static final int SENDING_PART_LOCATION_Y = 9;
 	private static final int SENDING_PART_LOCATION_VALUE = 10;
 	private static final int SENDING_MODE = 11;
-	
+	private static final int SENDING_SCOUT_KITING_LOCATION_X = 12;
+	private static final int SENDING_SCOUT_KITING_LOCATION_Y = 13;
 	// Second arguments for signals - meanings of the number sent
 	private static final int INTRO_MODE = 0;
 	private static final int TRANSITION_MODE = 1;
@@ -114,10 +116,7 @@ public class RobotPlayer {
 			{
 				rc.broadcastMessageSignal(turtleCorner.x, turtleCorner.y, broadcastRadius);
 			}
-				// 3) Pick up parts on current square, check for adjacent parts and try to collect them
-			collectParts(rc);
-				// 3a) activate any nearby units
-			activateUnits(rc);
+	
 			
 			// @Nathan - Intro mode is all you -- I just pasted all the text into a separate method for clarity
 				if (turtleCorner != LOCATION_NONE && currentMode != TURTLE_MODE)
@@ -127,12 +126,12 @@ public class RobotPlayer {
 				if (currentMode == INTRO_MODE) 
 				{
 					archonIntroMode(rc);
-					if (turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
+					//if (turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
 				} 
 				// 4) Move to turtle corner
 				if (currentMode == TRANSITION_MODE) 
 				{
-					if (rc.getLocation().distanceSquaredTo(turtleCorner) > 4 && rc.isCoreReady()) 
+					if (rc.getLocation().distanceSquaredTo(turtleCorner) > 4) 
 					{
 						moveTowards(rc, rc.getLocation().directionTo(turtleCorner));						
 					} 
@@ -163,6 +162,10 @@ public class RobotPlayer {
 				}
 				// 6) if senses enemy troop that is not a scout, run away from it
 				if (hasNearbyEnemies) moveAwayFromEnemies(rc);
+				// 3) Pick up parts on current square, check for adjacent parts and try to collect them
+				collectParts(rc);
+					// 3a) activate any nearby units
+				activateUnits(rc);
 				rc.setIndicatorString(0, "Turtle x: " +turtleCorner.x + "Turtle y: " + turtleCorner.y );
 				rc.setIndicatorString(1, "Current Mode" + currentMode);
 				Clock.yield(); // end turn
@@ -300,7 +303,6 @@ public class RobotPlayer {
 					}
 					// 6)
 					clearRubble(rc);
-					if(turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
 				}
 				rc.setIndicatorString(0, "Turtle x: " +turtleCorner.x + "Turtle y: " + turtleCorner.y );
 				rc.setIndicatorString(1, "Current Mode" + currentMode);
@@ -343,7 +345,7 @@ public class RobotPlayer {
 			}
 			rc.setIndicatorString(0, "Turtle x: " +turtleCorner.x + "Turtle y: " + turtleCorner.y );
 			rc.setIndicatorString(1, "I am a turret");
-			if (turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
+			//if (turtleCorner.equals(LOCATION_NONE)) tryToLocateCorner(rc);
 			Clock.yield();				
 		} catch (GameActionException e) {
 			e.printStackTrace();
@@ -371,12 +373,12 @@ public class RobotPlayer {
 				rc.disintegrate();
 			}
 			// 1)
-			processFighterSignals(rc);
-			// 2)
-			if (isNearbyEnemies(rc) && rc.isCoreReady() && rc.getType() == RobotType.TTM)
+			if (isNearbyEnemies(rc) && rc.isCoreReady())
 			{
 				rc.unpack();
 			}
+			// 2)
+			processFighterSignals(rc);			
 			// 3)
 			moveAwayFromArchons(rc);
 			// 4)
@@ -384,7 +386,7 @@ public class RobotPlayer {
 			// 5)
 			if (turtleCorner != LOCATION_NONE) moveFromCorner(rc);
 			// 6)
-			//if (rc.isCoreReady() && rc.getType() == RobotType.TTM && rc.getRoundNum()%25 == 0 &&!hasActed) rc.unpack();
+			if (rc.isCoreReady() && rc.getType() == RobotType.TTM && rc.getRoundNum()%25 == 0) rc.unpack();
 			rc.setIndicatorString(0, "Turtle x: " +turtleCorner.x + "Turtle y: " + turtleCorner.y );
 			rc.setIndicatorString(1, "I am a TTM!");
 			Clock.yield();				
@@ -623,13 +625,28 @@ public class RobotPlayer {
 	 * @return true if buildType is built else false
 	 * @throws GameActionException 
 	 */
-	private static boolean tryToBuild(RobotController rc, RobotType buildType) throws GameActionException {
-		if (rc.isCoreReady()) 
-		{
+	private static boolean tryToBuild(RobotController rc, RobotType buildType) throws GameActionException 
+	{
+		if (rc.isCoreReady()) {
 			Direction buildDir = getRandomDirection();
 			for (int i = 0; i < 8; i++) {
 				if (rc.canBuild(buildDir, buildType)) {
 					rc.build(buildDir, buildType);
+					rc.broadcastMessageSignal(SENDING_MODE, currentMode, ONE_SQUARE_RADIUS);
+					
+					if (!turtleCorner.equals(LOCATION_NONE)) {
+						rc.broadcastMessageSignal(SENDING_TURTLE_X, turtleCorner.x, ONE_SQUARE_RADIUS);
+						rc.broadcastMessageSignal(SENDING_TURTLE_Y, turtleCorner.y, ONE_SQUARE_RADIUS);						
+					}
+					
+					if (buildType.equals(RobotType.SCOUT)) 
+					{
+						for (MapLocation scoutKitingLoc : SCOUT_KITING_LOCATIONS) 
+						{
+							rc.broadcastMessageSignal(SENDING_SCOUT_KITING_LOCATION_X, scoutKitingLoc.x, ONE_SQUARE_RADIUS);
+							rc.broadcastMessageSignal(SENDING_SCOUT_KITING_LOCATION_Y, scoutKitingLoc.y, ONE_SQUARE_RADIUS);
+						}
+					}
 					return true;
 				}
 				buildDir = buildDir.rotateRight(); // try all directions clockwise
@@ -695,11 +712,9 @@ public class RobotPlayer {
 		if (rc.isCoreReady() && !dir.equals(Direction.OMNI) && !dir.equals(Direction.NONE)) 
 		{
 			Direction[] moveRight = {dir, dir.rotateRight(), dir.rotateLeft(),
-					dir.rotateRight().rotateRight(), dir.rotateLeft().rotateLeft(),
-					dir.rotateRight().rotateRight().rotateRight(), dir.rotateLeft(), dir.rotateLeft().rotateLeft()};
+					dir.rotateRight().rotateRight(), dir.rotateLeft().rotateLeft()};
 			Direction[] moveLeft = {dir, dir.rotateLeft(), dir.rotateRight(), dir.rotateLeft().rotateLeft(),
-					dir.rotateRight().rotateRight(), dir.rotateLeft(), dir.rotateLeft().rotateLeft()
-					,dir.rotateRight().rotateRight().rotateRight()};
+					dir.rotateRight().rotateRight()};
 			Direction [] nearDirections = Math.random() >= .5 ? moveRight : moveLeft; // 50% chance robot tries to move to right first
 			
 			for (Direction nearDir : nearDirections) 
@@ -742,7 +757,7 @@ public class RobotPlayer {
 	private static void moveAwayFromArchons (RobotController rc) throws GameActionException 
 	{
 		int mySenseRadius = rc.getType().sensorRadiusSquared;
-		int archonReserveDistance = (int)(Math.sqrt(rc.getRobotCount())*1.2)+1;
+		int archonReserveDistance = 9;
 		// @Hope make this more finessed 
 		archonReserveDistance = archonReserveDistance < mySenseRadius ? archonReserveDistance : mySenseRadius;
 		List<RobotInfo> robots = Arrays.asList(rc.senseNearbyRobots(archonReserveDistance, myTeam));
@@ -897,20 +912,25 @@ public class RobotPlayer {
 		return toTarget;
 	}
 	
-	private static MapLocation getFurthestInDirection(RobotController rc, MapLocation[] locs, Direction dir) throws GameActionException {
-		MapLocation furthest = LOCATION_NONE;
-		List<Direction> directionsTowards = Arrays.asList(dir, dir.rotateRight(), dir.rotateLeft());
+	private static MapLocation getFurthestInDirection(RobotController rc, MapLocation[] locs, Direction dir) throws GameActionException 
+	{
+		final MapLocation myLocation = rc.getLocation();
+		MapLocation furthest = myLocation.add(dir);
+		int furthestDist = myLocation.distanceSquaredTo(furthest);
+		List<Direction> directionsTowards = Arrays.asList(dir, dir.rotateLeft(), dir.rotateRight());
 		for (MapLocation loc : locs) 
 		{
-			if (furthest.equals(LOCATION_NONE)) 
+			if (directionsTowards.contains(myLocation.directionTo(loc))) 
 			{
 				if (rc.onTheMap(loc)) 
 				{
-					furthest = loc;					
+					int dist = myLocation.distanceSquaredTo(loc);
+					if (dist > furthestDist) 
+					{
+						furthestDist = dist;
+						furthest = loc;
+					}
 				}
-			} else if (directionsTowards.contains(furthest.directionTo(loc)) && rc.onTheMap(loc)) 
-			{
-				furthest = loc;
 			}
 		}
 		return furthest;
@@ -1029,7 +1049,7 @@ public class RobotPlayer {
 		MapLocation[] parts = rc.sensePartLocations(PART_COLLECTION_RADIUS_SQUARED);
 		for (int i=0; i < parts.length; i++)
 		{
-			if (myLocation.distanceSquaredTo(parts[i]) < myLocation.distanceSquaredTo(parts[lowestDistanceIndex]))
+			if (myLocation.distanceSquaredTo(parts[i]) < myLocation.distanceSquaredTo(parts[lowestDistanceIndex]) && rc.senseRubble(parts[lowestDistanceIndex]) < 200)
 			{
 				lowestDistanceIndex = i;
 			}
@@ -1039,7 +1059,7 @@ public class RobotPlayer {
 																						i : lowestDistanceIndex;
 			}
 		}
-		if (rc.isCoreReady() && parts.length > 0)
+		if (rc.isCoreReady() && parts.length > 0 && rc.senseRubble(parts[lowestDistanceIndex]) < 200)
 		{
 			moveTowards(rc, myLocation.directionTo(parts[lowestDistanceIndex]));
 		}
@@ -1107,17 +1127,17 @@ public class RobotPlayer {
 		{
 			if (enemies[i].type != RobotType.SCOUT)
 			{
-				return false;
+				return true;
 			}
 		}
 		return enemies.length > 0;
 	}
 	private static void moveFromCorner(RobotController rc) throws GameActionException 
 	{
-		int minRadius = 20; //units should try to maintain a minimum of 5 squared units
+		int minRadius = 9; //units should try to maintain a minimum of 5 squared units
 							//away from corner
 		// @Hope - refine max radius
-		int maxRadius = 25 + (int)Math.pow(rc.getRobotCount()/7, 2); // based of number 
+		int maxRadius = 26 + (int)Math.pow(rc.getRobotCount()/6, 2); // based of number 
 													//of troops the max radius increases
 		int distanceToCorner = rc.getLocation().distanceSquaredTo(turtleCorner);
 		if (distanceToCorner <= minRadius && rc.isCoreReady())
@@ -1136,19 +1156,19 @@ public class RobotPlayer {
 	 * @return cornerLocation
 	 * @throws GameActionException 
 	 */
-	private static void tryToLocateCorner(RobotController rc) throws GameActionException 
-	{
-		MapLocation corner = LOCATION_NONE;
-		for (Direction dir : DIRECTIONS)
-		{
-			corner = checkForCorner(rc, dir);
-			if (!corner.equals(LOCATION_NONE))
-			{
-				turtleCorner = corner;
-				break;
-			}
-		}
-	}
+	//private static void tryToLocateCorner(RobotController rc) throws GameActionException 
+	//{
+	//	MapLocation corner = LOCATION_NONE;
+	//	for (Direction dir : DIRECTIONS)
+	//	{
+	//		corner = checkForCorner(rc, dir);
+	//		if (!corner.equals(LOCATION_NONE))
+	//		{
+	//			turtleCorner = corner;
+	//			break;
+	//		}
+	//	}
+	//}
 
 	/**
 	 * Goes through a list of adjacent locations. If a wall is detected, robot tries to move away from it.
