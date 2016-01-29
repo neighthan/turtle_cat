@@ -465,7 +465,8 @@ public class RobotPlayer {
 			for (int x = -100; x <= 100; x++) {
 				for (int y = -100; y <= 100; y++) {
 					if ((-ARCHON_RESERVED_DISTANCE <= x && x <= ARCHON_RESERVED_DISTANCE &&
-							-ARCHON_RESERVED_DISTANCE <= y && y <= ARCHON_RESERVED_DISTANCE) || (x == y)) {
+							-ARCHON_RESERVED_DISTANCE <= y && y <= ARCHON_RESERVED_DISTANCE) ||
+							(Math.abs(x) == Math.abs(y))) {
 						MapLocation loc = new MapLocation(turtleX + x, turtleY + y);
 						RESERVED_LOCATIONS.add(loc);
 					}
