@@ -899,24 +899,14 @@ public class RobotPlayer {
 	
 	private static MapLocation getFurthestInDirection(RobotController rc, MapLocation[] locs, Direction dir) throws GameActionException {
 		MapLocation furthest = LOCATION_NONE;
-		MapLocation myLocation = rc.getLocation();
 		List<Direction> directionsTowards = Arrays.asList(dir, dir.rotateRight(), dir.rotateLeft());
-		for (MapLocation loc : locs) 
-		{
-			if (furthest == LOCATION_NONE) 
-			{
-				if (rc.onTheMap(loc)) 
-				{
+		for (MapLocation loc : locs) {
+			if (furthest.equals(LOCATION_NONE)) {
+				if (rc.onTheMap(loc)) {
 					furthest = loc;					
 				}
-			}
-			int dist = myLocation.distanceSquaredTo(loc);
-			if (dist > myLocation.distanceSquaredTo(furthest))
-			{
-				if (directionsTowards.contains(myLocation.directionTo(loc)) && rc.onTheMap(loc)) 
-				{
-					furthest = loc;
-				}
+			} else if (directionsTowards.contains(furthest.directionTo(loc)) && rc.onTheMap(loc)) {
+				furthest = loc;
 			}
 		}
 		return furthest;
@@ -930,17 +920,15 @@ public class RobotPlayer {
 	 */
 	private static MapLocation checkForCorner(RobotController rc, Direction dirToCorner) throws GameActionException 
 	{
-		int senseRadiusMinusOneSquared = (int) Math.pow(Math.sqrt(rc.getType().sensorRadiusSquared)-2, 2)-1;
+		int senseRadiusMinusOneSquared = (int) Math.pow(Math.sqrt(rc.getType().sensorRadiusSquared)-1, 2);
 		// so that when you add one below to check for a corner, you can still sense the +1 location
 		MapLocation[] nearby = MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), senseRadiusMinusOneSquared);
 		boolean isCorner = true;
 		MapLocation corner;
 		Direction[] nearDirections = {dirToCorner, dirToCorner.rotateLeft(), dirToCorner.rotateRight()};
 		corner = getFurthestInDirection(rc, nearby, dirToCorner);
-		for (Direction dir : nearDirections) 
-		{
-			if (rc.onTheMap(corner.add(dir))) 
-			{
+		for (Direction dir : nearDirections) {
+			if (rc.onTheMap(corner.add(dir))) {
 				isCorner = false;
 			}
 		}
