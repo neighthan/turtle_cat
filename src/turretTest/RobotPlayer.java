@@ -26,6 +26,7 @@ public class RobotPlayer {
 	private static final int ARCHON_RESERVED_DISTANCE_SQUARED = 9;
 	private static final int ARCHON_RESERVED_DISTANCE = 2;
 	private static final int ONE_SQUARE_RADIUS = 2;
+	private static int MAX_WIDTH = GameConstants.MAP_MAX_HEIGHT;
 	private static int fullMapRadius = GameConstants.MAP_MAX_HEIGHT*GameConstants.MAP_MAX_WIDTH;
 	private static int numArchons = 0;
 	private static Team myTeam;
@@ -443,6 +444,7 @@ public class RobotPlayer {
 	 * @throws GameActionException 
 	 */
 	private static void processFighterSignals(RobotController rc) throws GameActionException {
+		int bytecodeStart = Clock.getBytecodeNum();
 		int turtleX = Integer.MIN_VALUE;
 		int turtleY = Integer.MIN_VALUE;
 
@@ -452,9 +454,9 @@ public class RobotPlayer {
 				final int[] message = s.getMessage();
 				if (message[0] == SENDING_MODE) {
 					currentMode = message[1];
-				} else if (message[0] == SENDING_TURTLE_X) {
+				} else if (message[0] == SENDING_TURTLE_X && turtleCorner.equals(LOCATION_NONE)) {
 					turtleX = message[1];
-				} else if (message[0] == SENDING_TURTLE_Y) {
+				} else if (message[0] == SENDING_TURTLE_Y && turtleCorner.equals(LOCATION_NONE)) {
 					turtleY = message[1];
 				}
 			}
@@ -462,16 +464,18 @@ public class RobotPlayer {
 		
 		if (turtleX > Integer.MIN_VALUE && turtleY > Integer.MIN_VALUE) {
 			turtleCorner = new MapLocation(turtleX, turtleY);
-			for (int x = -100; x <= 100; x++) {
-				for (int y = -100; y <= 100; y++) {
+			for (int x = -GameConstants.MAP_MAX_WIDTH; x <= GameConstants.MAP_MAX_WIDTH; x++) {
+				for (int y = -GameConstants.MAP_MAX_HEIGHT; y <= GameConstants.MAP_MAX_HEIGHT; y++) {
 					if ((-ARCHON_RESERVED_DISTANCE <= x && x <= ARCHON_RESERVED_DISTANCE &&
-							-ARCHON_RESERVED_DISTANCE <= y && y <= ARCHON_RESERVED_DISTANCE) || (x == y)) {
+							-ARCHON_RESERVED_DISTANCE <= y && y <= ARCHON_RESERVED_DISTANCE) ||
+							(Math.abs(x) == Math.abs(y))) {
 						MapLocation loc = new MapLocation(turtleX + x, turtleY + y);
 						RESERVED_LOCATIONS.add(loc);
 					}
 				}
 			}
 		}
+		System.out.println("Bytecode used: " + (Clock.getBytecodeNum()-bytecodeStart));
 	}
 	
 	/**
@@ -516,11 +520,9 @@ public class RobotPlayer {
 				} else if (message[0] == SENDING_DEN_Y) {
 					denY = message[1];
 				} else if (message[0] == SENDING_SCOUT_KITING_LOCATION_X) {
-					System.out.println("X: " + message[1]);
 					scoutKitingLocationX = message[1];
 				} else if (message[0] == SENDING_SCOUT_KITING_LOCATION_Y) {
 					scoutKitingLocationY = message[1];
-					System.out.println("Y: " + message[1]);
 				} else if (message[0] == SENDING_TARGET_DIRECTION) {
 					targetDirection = SIGNAL_TO_DIRECTION.get(message[1]);
 				}
@@ -532,7 +534,6 @@ public class RobotPlayer {
 					}
 					scoutKitingLocationX = Integer.MIN_VALUE; // reset in case another location sent
 					scoutKitingLocationY = Integer.MIN_VALUE;
-					System.out.println("Scout loc added " + SCOUT_KITING_LOCATIONS);
 				}
 			}
 		}
@@ -744,6 +745,7 @@ public class RobotPlayer {
 	 * Checks if rc can move in direction dir (runs isCoreReady and canMove). If so, moves.
 	 * If not, moves rc in any of the four directions nearest dir, if possible.
 	 * rc will not move to locations in RESERVED_LOCATIONS or if dir is OMNI or NONE
+	 * or if the new location is adjacent to a zombie den
 	 * @param rc
 	 * @param dir
 	 * @return true if rc moves else false
@@ -754,7 +756,7 @@ public class RobotPlayer {
 		Direction[] nearDirections = {dir, dir.rotateRight(), dir.rotateLeft(),
 				dir.rotateRight().rotateRight(), dir.rotateLeft().rotateLeft()};
 		for (Direction nearDir : nearDirections) {
-			if (rc.canMove(nearDir)) {
+			if (rc.canMove(nearDir) && !adjacentToDen(rc, rc.getLocation().add(nearDir))) {
 				rc.move(nearDir);
 				return true;
 			}
@@ -762,6 +764,22 @@ public class RobotPlayer {
 		if (!rc.getType().equals(RobotType.TTM) && 
 				rc.onTheMap(rc.getLocation().add(dir)) && rc.senseRubble(rc.getLocation().add(dir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
 			rc.clearRubble(dir);
+		}
+		return false;
+	}
+	
+	/**
+	 * @param rc
+	 * @param loc all locations around loc must be within rc's sense range
+	 * @return true if loc is adjacent to a zombie den 
+	 * @throws GameActionException 
+	 */
+	private static boolean adjacentToDen(RobotController rc, MapLocation loc) throws GameActionException {
+		MapLocation[] nearby = MapLocation.getAllMapLocationsWithinRadiusSq(loc, ONE_SQUARE_RADIUS);
+		for (MapLocation nearbyLoc : nearby) {
+			if (rc.senseRobotAtLocation(nearbyLoc) != null && rc.senseRobotAtLocation(nearbyLoc).type.equals(RobotType.ZOMBIEDEN)) {
+				return true;
+			}
 		}
 		return false;
 	}
@@ -972,21 +990,25 @@ public class RobotPlayer {
 	/**
 	 * 
 	 * @param rc
-	 * @param locs
+	 * @param locs must contain at least the first location in direction dir from rc
 	 * @param dir direction in which to find the farthest location
-	 * @return the location from locs which is farthest in direction dir or LOCATION_NONE if none such
+	 * @return the location from locs which is farthest in direction dir from rc
 	 * @throws GameActionException
 	 */
 	private static MapLocation getFurthestInDirection(RobotController rc, MapLocation[] locs, Direction dir) throws GameActionException {
-		MapLocation furthest = LOCATION_NONE;
-		List<Direction> directionsTowards = Arrays.asList(dir, dir.rotateRight(), dir.rotateLeft());
+		final MapLocation myLocation = rc.getLocation();
+		MapLocation furthest = myLocation.add(dir);
+		int furthestDist = myLocation.distanceSquaredTo(furthest);
+		List<Direction> directionsTowards = Arrays.asList(dir, dir.rotateLeft(), dir.rotateRight());
 		for (MapLocation loc : locs) {
-			if (furthest.equals(LOCATION_NONE)) {
+			if (directionsTowards.contains(myLocation.directionTo(loc))) {
 				if (rc.onTheMap(loc)) {
-					furthest = loc;					
+					int dist = myLocation.distanceSquaredTo(loc);
+					if (dist > furthestDist) {
+						furthestDist = dist;
+						furthest = loc;
+					}
 				}
-			} else if (directionsTowards.contains(furthest.directionTo(loc)) && rc.onTheMap(loc)) {
-				furthest = loc;
 			}
 		}
 		return furthest;
@@ -1004,9 +1026,8 @@ public class RobotPlayer {
 		// so that when you add one below to check for a corner, you can still sense the +1 location
 		MapLocation[] nearby = MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), senseRadiusMinusOneSquared);
 		boolean isCorner = true;
-		MapLocation corner;
+		MapLocation corner = getFurthestInDirection(rc, nearby, dirToCorner);
 		Direction[] nearDirections = {dirToCorner, dirToCorner.rotateLeft(), dirToCorner.rotateRight()};
-		corner = getFurthestInDirection(rc, nearby, dirToCorner);
 		for (Direction dir : nearDirections) {
 			if (rc.onTheMap(corner.add(dir))) {
 				isCorner = false;
