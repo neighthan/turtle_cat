@@ -13,13 +13,10 @@ import battlecode.common.*;
 public class RobotPlayer {
 	
 	
-	private static MapLocation turtleCorner;
 //	private final static int PARTS_THRESHOLD = 100;
 	private static final int RUBBLE_LOWER_CLEAR_THRESHOLD = 40;
 	private static final Direction[] DIRECTIONS = {Direction.NORTH, Direction.NORTH_EAST, Direction.EAST,
 			Direction.SOUTH_EAST, Direction.SOUTH, Direction.SOUTH_WEST, Direction.WEST, Direction.NORTH_WEST};
-	private static final Direction[] OPPOSITE_DIRECTIONS = {Direction.SOUTH, Direction.SOUTH_WEST, Direction.WEST, 
-			Direction.NORTH_WEST, Direction.NORTH, Direction.NORTH_EAST, Direction.EAST, Direction.SOUTH_EAST};
 	private static Random rand;
 	private final static MapLocation LOCATION_NONE = new MapLocation(Integer.MAX_VALUE, Integer.MAX_VALUE);
 	// because there is no .NONE; MapLocations are only offset by +/- 500, and size <= 80, so this won't be taken
@@ -27,17 +24,19 @@ public class RobotPlayer {
 	private final static int NUM_INTRO_SCOUTS = 4;
 	private static int NUM_KITING_SCOUTS = 4;
 	private static final int ARCHON_RESERVED_DISTANCE_SQUARED = 9;
+	private static final int ARCHON_RESERVED_DISTANCE = 2;
 	private static final int ONE_SQUARE_RADIUS = 2;
-	private static final int PART_COLLECTION_RADIUS_SQUARED = 9;
-	private static final int ACTIVATION_RADIUS_SQUARED = 9; 
 	private static int fullMapRadius = GameConstants.MAP_MAX_HEIGHT*GameConstants.MAP_MAX_WIDTH;
 	private static int numArchons = 0;
 	private static Team myTeam;
 	
-	private static final int NUM_TURNS_TO_CHECK_FOR_ZOMBIES = 3;
+	private static final int NUM_TURNS_TO_CHECK_FOR_ZOMBIES = 2;
 	
 	private static final List<MapLocation> ZOMBIE_DEN_LOCATIONS = new ArrayList<>();
 	private static final List<MapLocation> SCOUTED_CORNERS = new ArrayList<>();
+	private static final List<MapLocation> RESERVED_LOCATIONS = new ArrayList<>();
+	private static final List<MapLocation> SCOUT_KITING_LOCATIONS = new ArrayList<>();
+	private static MapLocation turtleCorner = LOCATION_NONE;
 	
 	// First arguments for signals - identifiers of what will be sent
 	private static final int SENDING_DEN_X = 1;
@@ -51,6 +50,8 @@ public class RobotPlayer {
 	private static final int SENDING_PART_LOCATION_Y = 9;
 	private static final int SENDING_PART_LOCATION_VALUE = 10;
 	private static final int SENDING_MODE = 11;
+	private static final int SENDING_SCOUT_KITING_LOCATION_X = 12;
+	private static final int SENDING_SCOUT_KITING_LOCATION_Y = 13;
 	
 	// Second arguments for signals - meanings of the number sent
 	private static final int INTRO_MODE = 0;
@@ -66,96 +67,114 @@ public class RobotPlayer {
 	/**
 	 * @param rc
 	 */
-	public static void run(RobotController rc) 
-	{
+	public static void run(RobotController rc) {
 		rand = new Random(rc.getID());
 		myTeam = rc.getTeam();
-		if (rc.getType() == RobotType.ARCHON) {
-			archon(rc);
-		} else if (rc.getType() == RobotType.SCOUT) {
-			scout(rc);
-		} else if (rc.getType() == RobotType.TURRET) {
-			turret(rc);
-		} else if (rc.getType() == RobotType.TTM) {
-			ttm(rc);
-		} else if (rc.getType() == RobotType.SOLDIER) {
-			soldier(rc);
-		} else if (rc.getType() == RobotType.GUARD) {
-			guard(rc);
-		} else if (rc.getType() == RobotType.VIPER) {
-			viper(rc);
+		while (true) {
+			if (rc.getType() == RobotType.ARCHON) {
+				archon(rc);
+			} else if (rc.getType() == RobotType.SCOUT) {
+				scout(rc);
+			} else if (rc.getType().equals(RobotType.TURRET)) {
+				turret(rc);
+			} else if (rc.getType().equals(RobotType.TTM)) {
+				ttm(rc);
+			} else if (rc.getType() == RobotType.SOLDIER) {
+				soldier(rc);
+			} else if (rc.getType() == RobotType.GUARD) {
+				guard(rc);
+			} else if (rc.getType() == RobotType.VIPER) {
+				viper(rc);
+			}			
 		}
 	}
 
 	/**
-	 * @Nathan - Should we adjust these priorities (specifically where should building troops be?)
-	 * TODO for archons - 
-	 * 1) repair, always run away from enemies (excluding scouts)
-	 * 2) signal turtle location
-	 * 3) pick up adjacent parts and activate neutral units
-	 * 4) move to turtle corner
-	 * 5) build troops
+	 * TODO - about archon strategy here
 	 * @param rc
 	 * @throws GameActionException
 	 */
 	private static void archon(RobotController rc){
 		numArchons = rc.getInitialArchonLocations(myTeam).length;
+		final ZombieSpawnSchedule zombieSchedule = rc.getZombieSpawnSchedule();
+		final List<Integer> roundsWithZombies = new ArrayList<>();
+		for (int round : zombieSchedule.getRounds()) {
+			roundsWithZombies.add(round);
+		}
 		while (true) {
 			try {
-				// 1) repair nearest injured unit
-				// if senses enemy troop that is not a scout, run away from it
-			repairFirst(rc);
-			moveAwayFromEnemies(rc);
-				// 2) signal turtle location - every 25 turns 
-			int broadcastRadius = rc.getType().sensorRadiusSquared*(2+(rc.getRobotCount()/50));
-			if (rc.getRoundNum() > 90 && rc.getRoundNum() % 25 == 0 && turtleCorner != null)
-			{
-				// @Hope - fix broadcast signal range - make it calculated based on number of troops
-				rc.broadcastMessageSignal(turtleCorner.x, turtleCorner.y, broadcastRadius);
-			}
-				// 3) Pick up parts on current square, check for adjacent parts and try to collect them
-			if (rc.isCoreReady()) collectParts(rc);
-				// 3a) activate any nearby units
-			if (rc.isCoreReady()) activateUnits(rc);
-			
-			// @Nathan - Intro mode is all you -- I just pasted all the text into a separate method for clarity
-				if (currentMode == INTRO_MODE) 
-				{
-					archonIntroMode(rc);
-				} 
-				// 4) Move to turtle corner
-				if (currentMode == TRANSITION_MODE) 
-				{
-					if (rc.getLocation().distanceSquaredTo(turtleCorner) > 4) 
-					{
-						moveTowards(rc, rc.getLocation().directionTo(turtleCorner));						
-					} 
-					else 
-					{
-						// TODO get in proper position
+				rc.setIndicatorString(0, currentMode + "");
+//				moveAwayFromEnemies(rc);
+				if (currentMode == INTRO_MODE) {
+					processIntroMessageSignals(rc);
+					// TODO: what if, after an appropriate number of turns, the scouts haven't reported anything?
+					// should we have all of the archons move together in some direction and hope it is towards a corner?
+					if (SCOUTED_CORNERS.size() > 1) {
+						currentMode = TRANSITION_MODE;
+						turtleCorner = findBestTurtleCorner(rc);
+						for (MapLocation corner : SCOUTED_CORNERS) {
+							if (turtleCorner.directionTo(corner).isDiagonal()) {
+								fullMapRadius = turtleCorner.distanceSquaredTo(corner);
+								int deltaX = Math.abs(turtleCorner.x - corner.x);
+								int deltaY = Math.abs(turtleCorner.y - corner.y);
+								SCOUT_KITING_LOCATIONS.add(new MapLocation(Math.min(turtleCorner.x, corner.x) + deltaX/2, Math.min(turtleCorner.y, corner.y) + deltaY/2));
+								break;
+							}
+						}
+						// TODO (also broadcast this locally to scouts when you make them? So they can message
+						// back more efficiently, if they have to)
+						rc.broadcastMessageSignal(SENDING_MODE, TRANSITION_MODE, rc.getType().sensorRadiusSquared*4);
+						rc.broadcastMessageSignal(SENDING_TURTLE_X, turtleCorner.x, rc.getType().sensorRadiusSquared*4);
+						rc.broadcastMessageSignal(SENDING_TURTLE_Y, turtleCorner.y, rc.getType().sensorRadiusSquared*4);
+					}
+					
+					// TODO gathering parts (need locations from scouts first...)
+					if (rc.getRobotCount() - numArchons < NUM_INTRO_SCOUTS) {
+						tryToBuild(rc, RobotType.SCOUT);
+						Direction directionToTargetCorner = calculateDirectionToClosestCorner(rc);
+						rc.broadcastMessageSignal(SENDING_TARGET_DIRECTION, DIRECTION_TO_SIGNAL.get(directionToTargetCorner), ONE_SQUARE_RADIUS);
+					} else {
+						if (rand.nextDouble() > 1.66666) { // 2:1 soldier:guard ratio //TODO fix guard code
+							tryToBuild(rc, RobotType.GUARD);
+						} else {
+							tryToBuild(rc, RobotType.SOLDIER);
+						}
+					}
+				} else if (currentMode == TRANSITION_MODE) {
+					if (rc.getLocation().equals(turtleCorner) ||
+							(rc.getLocation().distanceSquaredTo(turtleCorner) <= ONE_SQUARE_RADIUS && 
+									rc.canSense(turtleCorner) && 
+									rc.senseRobotAtLocation(turtleCorner) != null &&
+									rc.senseRobotAtLocation(turtleCorner).type.equals(RobotType.ARCHON))) {
 						currentMode = TURTLE_MODE;
 						rc.broadcastMessageSignal(SENDING_MODE, TURTLE_MODE, rc.getType().sensorRadiusSquared);
+					} else {
+						moveTowards(rc, rc.getLocation().directionTo(turtleCorner));						
 					}
-				}
 					
-				// 5) Build Troops !
-				// @Nathan do we need to build more scouts in turtle mode so we can do more kiting?
-				if (rc.getRobotCount() - numArchons < NUM_INTRO_SCOUTS && rc.isCoreReady()) 
-				{
-					tryToBuild(rc, RobotType.SCOUT);
-					Direction directionToTargetCorner = calculateDirectionToClosestCorner(rc);
-					rc.broadcastMessageSignal(SENDING_TARGET_DIRECTION, DIRECTION_TO_SIGNAL.get(directionToTargetCorner), 4);
-				} 
-				if (rc.getRobotCount() <= 30 && rc.isCoreReady()) tryToBuild(rc, RobotType.SOLDIER);
-				if (rc.getRobotCount() > 30 && rc.isCoreReady()) tryToBuild(rc, RobotType.TTM);
-				Clock.yield(); // end turn
+					if (rand.nextDouble() > 1.52) { // 2:1 soldier:guard ratio //TODO Work on guard code temporarily disabled guard production
+						tryToBuild(rc, RobotType.GUARD);
+					} else {
+						tryToBuild(rc, RobotType.TURRET);
+					}
+				} else if (currentMode == TURTLE_MODE) {
+					if (roundsWithZombies.contains(rc.getRoundNum() - 30)) {
+						tryToBuild(rc, RobotType.SCOUT);
+					} else if (rc.senseHostileRobots(rc.getLocation(), -1).length > 0) {
+						tryToBuild(rc, RobotType.SOLDIER);
+					} else {
+						tryToBuild(rc, RobotType.TURRET);						
+					}
+					clearNearbyRubble(rc);
+				}
+				activateFirst(rc);
+				repairFirst(rc);
+				Clock.yield();
 			} catch (GameActionException e) {
 				e.printStackTrace();
 			}
 		}
 	}
-
-
 
 	private static int turnsToCheckForZombies = 0;
 	private static void scout(RobotController rc) {
@@ -163,15 +182,18 @@ public class RobotPlayer {
 		Direction targetDirection = Direction.NONE;
 		while (true) {
 			try {
+				if (targetDirection.equals(Direction.NONE) && currentMode == INTRO_MODE) {
+					targetDirection = processScoutMessages(rc);
+				} else {
+					processScoutMessages(rc);					
+				}
+				// have to get direction before processing signals! (it consumes all signals so far)
 				// TODO - I've made it so the scouts will go in pairs now; not sure if we want this later or not, but they
 				// aren't avoiding enemies well enough
 				if (currentMode == INTRO_MODE && rc.getRoundNum() >= 40) {
 					// TODO - scouts don't pick their directions well enough - try running diffusion.
 					// one often starts already in/near a corner; if we find a corner very close, we should probably just move to it
 					// and turtle right away (even if we don't know about the others yet)
-					if (targetDirection.equals(Direction.NONE)) {
-						targetDirection = getScoutTargetDirection(rc);
-					}
 					
 //					RobotInfo[] zombies = rc.senseNearbyRobots(-1, Team.ZOMBIE);
 					// TODO: bring this back in, but only if there aren't bots that will attack the scout
@@ -185,31 +207,35 @@ public class RobotPlayer {
 //							}
 //						}
 //					}
-//					int start = Clock.getBytecodeNum();
 					MapLocation corner = checkForCorner(rc, targetDirection);
-//					System.out.println("CheckforCorner: " + (Clock.getBytecodeNum() - start));
 					if (!corner.equals(LOCATION_NONE)) {
 						rc.broadcastMessageSignal(SENDING_CORNER_X, corner.x, fullMapRadius);
 						rc.broadcastMessageSignal(SENDING_CORNER_Y, corner.y, fullMapRadius);
-						// head to opposite in case other scout didn't make it
-						// TODO or scout around for other zombie dens, kite, etc.
+						SCOUTED_CORNERS.add(corner);
+						// head to opposite in case other scout doesn't make it
 						targetDirection = targetDirection.opposite();
 					}
-//					start = Clock.getBytecodeNum();
-					moveCautiously(rc, targetDirection);
-//					System.out.println("moveCautiously: " + (Clock.getBytecodeNum() - start));
-				} else { // not intro mode; do kiting
+					
+					if (SCOUTED_CORNERS.size() > 1) {
+						currentMode = TURTLE_MODE;
+						turtleCorner = findBestTurtleCorner(rc);
+					} else {
+						moveCautiously(rc, targetDirection);
+					}
+				} else if (currentMode == TRANSITION_MODE || currentMode == TURTLE_MODE){
 					RobotInfo[] zombies = rc.senseNearbyRobots(-1, Team.ZOMBIE);
 					if (zombies.length > 0) {
-						turnsToCheckForZombies = NUM_TURNS_TO_CHECK_FOR_ZOMBIES;					
+						turnsToCheckForZombies = NUM_TURNS_TO_CHECK_FOR_ZOMBIES;
 					}
 					if (turnsToCheckForZombies > 0) {
 						turnsToCheckForZombies--;
 						leadZombiesToEnemy(rc);
 					} else {
-						
+						if (SCOUT_KITING_LOCATIONS.size() > 0) {
+							moveTowards(rc, rc.getLocation().directionTo(SCOUT_KITING_LOCATIONS.get(0)));
+							rc.setIndicatorString(0, SCOUT_KITING_LOCATIONS + "");
+						}
 					}
-//				rc.sensePartLocations(-1); //TODO
 				}
 				Clock.yield();				
 			} catch (GameActionException e) {
@@ -224,8 +250,8 @@ public class RobotPlayer {
 			try {
 				if (currentMode == INTRO_MODE) {
 					//TODO smarter attacking (make a method to pick and attack, move if appropriate)
-					if (rc.isWeaponReady()) attackFirst(rc);
-					if (rc.isCoreReady()) {
+					boolean attacked = attackFirst(rc);
+					if (!attacked && rc.isCoreReady() && rc.isWeaponReady()) {
 						//so that you don't try to move and get delay if you should be getting ready to attack
 						moveTowardsNearestEnemy(rc);
 					}
@@ -239,73 +265,53 @@ public class RobotPlayer {
 	
 	/**
 	 * Working on soldier behavior:
-	 * 1) If about to die and infected and senses nearby friendly robots, self destruct
-	 * 2) Attack if possible
-	 * 3) Process signals. 
-	 *  (If another soldier signals, move towards that soldier (means there is a zombie den nearby))
-	 *  (Use archon signals to determine whether to move towards archon or away.)
-	 * 4) Try to clear surrounding rubble 
 	 * 
 	 * @param rc
 	 */
-	private static void soldier(RobotController rc)
-	{
-		MapLocation turtleCorner = LOCATION_NONE;
-		while (true) 
-		{
-			try 
-			{
-				RobotInfo[] friendlyRobots = rc.senseNearbyRobots(rc.getType().sensorRadiusSquared, rc.getTeam());
-				if (rc.getHealth() <= 3 && rc.isInfected() && friendlyRobots.length > 0) // 1)
-				{
-					rc.disintegrate();
-				}
-				else
-				{
-					
-					if (rc.isWeaponReady()) attackFirst(rc); // 2)
-					processFighterSignals(rc); //3)
-					if (!turtleCorner.equals(LOCATION_NONE))
-					{
-						int minRadius = 25;
-						int maxRadius = 25 + rc.getRobotCount()/7;
-						int distanceToCorner = rc.getLocation().distanceSquaredTo(turtleCorner);
-						if (distanceToCorner <= minRadius && rc.isCoreReady())
-						{
-							Direction dir = oppositeDirection(rc.getLocation().directionTo(turtleCorner));
-							moveTowards(rc, dir);
-						}
-						if (distanceToCorner >= maxRadius && rc.isCoreReady())
-						{
-							moveTowards(rc, rc.getLocation().directionTo(turtleCorner));
+	private static void soldier(RobotController rc) {
+		// do one time things here
+		while (true) {
+			try {
+				rc.setIndicatorString(0, currentMode + "");
+				processFighterSignals(rc);
+				if (currentMode == INTRO_MODE) {
+					//TODO smarter attacking (make a method to pick and attack, move if appropriate)
+					boolean attacked = attackFirst(rc);
+					if (!attacked && rc.isWeaponReady()) {
+						//so that you don't try to move and get delay if you should be getting ready to attack
+						boolean moved = moveTowardsNearestEnemy(rc);
+						if (!moved) {
+							moveAwayFromArchons(rc);
 						}
 					}
-					else
-					{
-						if(rc.isCoreReady() && currentMode == TRANSITION_MODE) moveTowardsArchon(rc);
+				} else if (currentMode == TRANSITION_MODE) {
+					boolean attacked = attackFirst(rc);
+					if (!attacked && rc.isWeaponReady()) {
+						boolean moved = moveTowardsNearestEnemy(rc);
+						if (!moved) {
+							if (rc.canSense(turtleCorner)) {
+								moveAwayFromReservedLocations(rc);
+							} else {
+								moveTowards(rc, rc.getLocation().directionTo(turtleCorner));
+							}
+						}
 					}
-//					if (rc.isCoreReady()) clearRubble(rc); // 4)
+				} else if (currentMode == TURTLE_MODE) {
+					boolean attacked = attackFirst(rc); // TODO write turtle specific attack method
+					if(!attacked && rc.isWeaponReady()) {
+					//TODO write in formations, write in if injured and no enemies sighted get healed, etc.
+						boolean moved = moveAwayFromReservedLocations(rc);
+						if (!moved) {
+							clearNearbyRubble(rc);
+						}
+					}
 				}
-				Clock.yield();				
+				Clock.yield();
 			} 
-			catch (GameActionException e) 
-			{
+			catch (GameActionException e) {
 				e.printStackTrace();
 			}
 		}
-	}
-
-	private static Direction oppositeDirection(Direction directionTo) 
-	{
-		int directionIndex = 0;
-		for (int i=0; i<DIRECTIONS.length; i++)
-		{
-			if (directionTo == DIRECTIONS[i])
-			{
-				directionIndex = i;
-			}
-		}
-		return OPPOSITE_DIRECTIONS[directionIndex];
 	}
 
 	/**
@@ -315,86 +321,76 @@ public class RobotPlayer {
 	 * @return true if rc moves else false
 	 * @throws GameActionException
 	 */
-	private static void moveTowardsArchon(RobotController rc) throws GameActionException 
-	{
+	private static boolean moveTowardsArchon(RobotController rc) throws GameActionException {
+		boolean moved = false;
+		if (!rc.isCoreReady()) return moved;
 		RobotInfo[] nearbyRobots =  rc.senseNearbyRobots(rc.getType().sensorRadiusSquared, myTeam);
-		for (int i=0; i<nearbyRobots.length; i++) 
-		{
-			if(nearbyRobots[i].type.equals(RobotType.ARCHON) && rc.isCoreReady()) 
-			{
-				if (nearbyRobots[i].location.distanceSquaredTo(rc.getLocation()) > ARCHON_RESERVED_DISTANCE_SQUARED) 
-				{
-					Direction dir = rc.getLocation().directionTo(nearbyRobots[i].location);
-					moveTowards(rc, dir);
+		for (int i=0; i<nearbyRobots.length; i++) {
+			if(nearbyRobots[i].type.equals(RobotType.ARCHON)) {
+				Direction dir = rc.getLocation().directionTo(nearbyRobots[i].location);
+				if (nearbyRobots[i].location.distanceSquaredTo(rc.getLocation()) > ARCHON_RESERVED_DISTANCE_SQUARED) {
+					moved = moveTowards(rc, dir);
+					if (moved) {
+						break;
+					}
 				}
 			}
 		}
+		return moved;
     }
 
-	private static void turret(RobotController rc) 
-	{
+	private static void turret(RobotController rc) {
 		// do one time things here
-		while (true) {
-			try {
-				boolean attacked = turretAttack(rc);
-				if (!attacked && rc.isWeaponReady()) {
-					Signal[] signals = rc.emptySignalQueue();
-					for (Signal s : signals) {
-						if (!s.getTeam().equals(myTeam) && rc.canAttackLocation(s.getLocation())) {
-							rc.attackLocation(s.getLocation());
-							break;
-						}
+		try {
+			processFighterSignals(rc);
+			boolean attacked = turretAttack(rc);
+			if (!attacked && rc.isWeaponReady()) {
+				Signal[] signals = rc.emptySignalQueue();
+				for (Signal s : signals) {
+					if (!s.getTeam().equals(myTeam) && rc.canAttackLocation(s.getLocation())) {
+						rc.attackLocation(s.getLocation());
+						attacked = true;
+						break;
 					}
 				}
-				Clock.yield();				
-			} catch (GameActionException e) {
-				e.printStackTrace();
 			}
+			if (!attacked && rc.isWeaponReady() && RESERVED_LOCATIONS.contains(rc.getLocation())) {
+				//TODO - only pack if you could move further away 
+				// (turrets are getting too stuck)
+				rc.pack();
+			}
+			Clock.yield();				
+		} catch (GameActionException e) {
+			e.printStackTrace();
 		}
 	}
 
-	private static void ttm(RobotController rc) 
-	{
+	private static void ttm(RobotController rc) {
 		// do one time things here
-		MapLocation turtleCorner = LOCATION_NONE;
-		while (true) 
-		{
-			try 
-			{
-				moveAwayFromArchons(rc);
-				processFighterSignals(rc);
-				if (turtleCorner != LOCATION_NONE)
-				{
-					int minRadius = 25;
-					int maxRadius = 25 + rc.getRobotCount()/7;
-					int distanceToCorner = rc.getLocation().distanceSquaredTo(turtleCorner);
-					if (distanceToCorner <= minRadius && rc.isCoreReady())
-					{
-						Direction dir = oppositeDirection(rc.getLocation().directionTo(turtleCorner));
-						moveTowards(rc, dir);
-					}
-					if (distanceToCorner >= maxRadius && rc.isCoreReady())
-					{
-						moveTowards(rc, rc.getLocation().directionTo(turtleCorner));
-					}
+		try {
+			boolean moved = moveAwayFromReservedLocations(rc);
+			if (!moved) {
+				if (!RESERVED_LOCATIONS.contains(rc.getLocation())) {
+					rc.unpack();
+				} else if (rc.senseHostileRobots(rc.getLocation(), -1).length > 0) {
+					rc.unpack();
 				}
-				if (rc.isCoreReady()) rc.unpack();
-				Clock.yield();				
-			} 
-			catch (GameActionException e) 
-			{
-				e.printStackTrace();
 			}
+			Clock.yield();				
+		} catch (GameActionException e) {
+			e.printStackTrace();
 		}
 	}
 
 	private static void viper(RobotController rc) {
-		// in case we use vipers later
+		// in case we use vipers later or one is activated by an archon
 		// do one time things here
-		while (true) 
-		{
-	    	rc.disintegrate();
-			Clock.yield();				
+		while (true) {
+//			try {
+				Clock.yield();				
+//			} catch (GameActionException e) {
+//				e.printStackTrace();
+//			}
 		}
 	}
 
@@ -428,9 +424,7 @@ public class RobotPlayer {
 			MapLocation newCorner = new MapLocation(cornerX, cornerY);
 			if (!SCOUTED_CORNERS.contains(newCorner)) {
 				SCOUTED_CORNERS.add(newCorner);
-				rc.setIndicatorString(0, "Added new corner: " + newCorner);
 			}
-			rc.setIndicatorString(1, SCOUTED_CORNERS + "");
 		}
 		if (denX > Integer.MIN_VALUE && denY > Integer.MIN_VALUE) {
 			MapLocation newDen = new MapLocation(denX, denY);
@@ -441,51 +435,145 @@ public class RobotPlayer {
 	}
 	
 	/**
-	 * Message-processing for non-archons
+	 * Message-processing for fighting robots
 	 * Currently handles messages:
 	 *    Change of mode
 	 *    Setting turtle-corner location
 	 * @param rc
 	 * @throws GameActionException 
 	 */
-	private static void processFighterSignals(RobotController rc) throws GameActionException 
-	{
-		int cornerX = Integer.MIN_VALUE;
-		int cornerY = Integer.MIN_VALUE;
+	private static void processFighterSignals(RobotController rc) throws GameActionException {
+		int turtleX = Integer.MIN_VALUE;
+		int turtleY = Integer.MIN_VALUE;
 
 		Signal[] signals = rc.emptySignalQueue();
-		for (Signal s : signals) 
-		{
-			if (s.getTeam().equals(myTeam) && s.getMessage() != null) 
-			{
+		for (Signal s : signals) {
+			if (s.getTeam().equals(myTeam) && s.getMessage() != null) {
 				final int[] message = s.getMessage();
 				if (message[0] == SENDING_MODE) {
 					currentMode = message[1];
-				}else if (message[0] == SENDING_TURTLE_X) {
-					cornerX = message[1];
+				} else if (message[0] == SENDING_TURTLE_X) {
+					turtleX = message[1];
 				} else if (message[0] == SENDING_TURTLE_Y) {
-					cornerY = message[1];
+					turtleY = message[1];
 				}
-			}
-			if (rc.getType() == RobotType.SOLDIER && s.getTeam().equals(myTeam) 
-					&& s.getMessage() == null && rc.isCoreReady())
-			{
-				moveTowards(rc, rc.getLocation().directionTo(s.getLocation()));
 			}
 		}
 		
-		if (cornerX > Integer.MIN_VALUE && cornerY > Integer.MIN_VALUE) 
-		{
-			turtleCorner = new MapLocation(cornerX, cornerY);
+		if (turtleX > Integer.MIN_VALUE && turtleY > Integer.MIN_VALUE) {
+			turtleCorner = new MapLocation(turtleX, turtleY);
+			for (int x = -100; x <= 100; x++) {
+				for (int y = -100; y <= 100; y++) {
+					if ((-ARCHON_RESERVED_DISTANCE <= x && x <= ARCHON_RESERVED_DISTANCE &&
+							-ARCHON_RESERVED_DISTANCE <= y && y <= ARCHON_RESERVED_DISTANCE) || (x == y)) {
+						MapLocation loc = new MapLocation(turtleX + x, turtleY + y);
+						RESERVED_LOCATIONS.add(loc);
+					}
+				}
+			}
 		}
 	}
 	
 	/**
-	 * Best is determined by nearest to the archon initial center of mass
+	 * Processes the following messages for scouts:
+	 *     corners
+	 *     turtle corner
+	 *     dens
+	 *     scout kiting locations
+	 *     target direction
+	 * @param rc of type scout
+	 * @return target direction, if one was encoded in a message, else Direction.NONE
+	 * (usually, a direction will only be returned the first time this method is run by one
+	 * of the scouts created at the beginning of the game)
+	 */
+	private static Direction processScoutMessages(RobotController rc) {
+		int turtleX = Integer.MIN_VALUE;
+		int turtleY = Integer.MIN_VALUE;
+		int cornerX = Integer.MIN_VALUE;
+		int cornerY = Integer.MIN_VALUE;
+		int denX = Integer.MIN_VALUE;
+		int denY = Integer.MIN_VALUE;
+		int scoutKitingLocationX = Integer.MIN_VALUE;
+		int scoutKitingLocationY = Integer.MIN_VALUE;
+		Direction targetDirection = Direction.NONE;
+
+		Signal[] signals = rc.emptySignalQueue();
+		for (Signal s : signals) {
+			if (s.getTeam().equals(myTeam) && s.getMessage() != null) {
+				final int[] message = s.getMessage();
+				if (message[0] == SENDING_MODE) {
+					currentMode = message[1];
+				} else if (message[0] == SENDING_TURTLE_X) {
+					turtleX = message[1];
+				} else if (message[0] == SENDING_TURTLE_Y) {
+					turtleY = message[1];
+				} else if (message[0] == SENDING_CORNER_X) {
+					cornerX = message[1];
+				} else if (message[0] == SENDING_CORNER_Y) {
+					cornerY = message[1];
+				} else if (message[0] == SENDING_DEN_X) {
+					denX = message[1];
+				} else if (message[0] == SENDING_DEN_Y) {
+					denY = message[1];
+				} else if (message[0] == SENDING_SCOUT_KITING_LOCATION_X) {
+					System.out.println("X: " + message[1]);
+					scoutKitingLocationX = message[1];
+				} else if (message[0] == SENDING_SCOUT_KITING_LOCATION_Y) {
+					scoutKitingLocationY = message[1];
+					System.out.println("Y: " + message[1]);
+				} else if (message[0] == SENDING_TARGET_DIRECTION) {
+					targetDirection = SIGNAL_TO_DIRECTION.get(message[1]);
+				}
+				//there may be multiple scout kiting locations sent at once
+				if (scoutKitingLocationX > Integer.MIN_VALUE && scoutKitingLocationY > Integer.MIN_VALUE) {
+					MapLocation newKitingLocation = new MapLocation(scoutKitingLocationX, scoutKitingLocationY);
+					if (!SCOUT_KITING_LOCATIONS.contains(newKitingLocation)) {
+						SCOUT_KITING_LOCATIONS.add(newKitingLocation);				
+					}
+					scoutKitingLocationX = Integer.MIN_VALUE; // reset in case another location sent
+					scoutKitingLocationY = Integer.MIN_VALUE;
+					System.out.println("Scout loc added " + SCOUT_KITING_LOCATIONS);
+				}
+			}
+		}
+		
+		if (turtleX > Integer.MIN_VALUE && turtleY > Integer.MIN_VALUE) {
+			turtleCorner = new MapLocation(turtleX, turtleY);
+		}
+		
+		if (cornerX > Integer.MIN_VALUE && cornerY > Integer.MIN_VALUE) {
+			MapLocation newCorner = new MapLocation(cornerX, cornerY);
+			if (!SCOUTED_CORNERS.contains(newCorner)) {
+				SCOUTED_CORNERS.add(newCorner);
+			}
+		}
+		
+		if (denX > Integer.MIN_VALUE && denY > Integer.MIN_VALUE) {
+			MapLocation newDen = new MapLocation(denX, denY);
+			if (!ZOMBIE_DEN_LOCATIONS.contains(newDen)) {
+				ZOMBIE_DEN_LOCATIONS.add(newDen);				
+			}
+		}
+		return targetDirection;
+	}
+	
+	/**
+	 * Best is determined by nearest to the archon initial center of mass.
+	 * Requires that SCOUTED_CORNERS contains the locations of at least two corners which are
+	 * diagonal from each other.
+	 * If all corners are not yet in SCOUTED_CORNERS, the others are added. 
 	 * @param rc
 	 * @return
 	 */
 	private static MapLocation findBestTurtleCorner(RobotController rc) {
+		MapLocation[] newCorners = {new MapLocation(SCOUTED_CORNERS.get(0).x, SCOUTED_CORNERS.get(1).y),
+				new MapLocation(SCOUTED_CORNERS.get(1).x, SCOUTED_CORNERS.get(0).y)};
+		for (MapLocation corner : newCorners) {
+			if(!SCOUTED_CORNERS.contains(corner)) {
+				SCOUTED_CORNERS.add(corner);
+			}
+		}
+		
 		List<MapLocation> archonLocations = Arrays.asList(rc.getInitialArchonLocations(myTeam));
 		int avgX = 0;
 		int avgY = 0;
@@ -498,7 +586,7 @@ public class RobotPlayer {
 		MapLocation archonCenterOfMass = new MapLocation(avgX, avgY);
 		Optional<MapLocation> bestCorner = SCOUTED_CORNERS.stream().min((corner1, corner2) ->
 		corner1.distanceSquaredTo(archonCenterOfMass) - corner2.distanceSquaredTo(archonCenterOfMass));
-		return bestCorner.get();
+		return bestCorner.isPresent()? bestCorner.get() : LOCATION_NONE;
 	}
 
 	/**
@@ -508,92 +596,76 @@ public class RobotPlayer {
 	 * @throws GameActionException
 	 * @return true if this robot attacked else false
 	 */
-	private static void attackFirst(RobotController rc) throws GameActionException 
+	private static boolean attackFirst(RobotController rc) throws GameActionException 
 	{
-
-		//boolean equalHealth = true;
-		//int lowestHealthIndex = 0;
-		int lowestDistanceIndex = 0;
-		int attackIndex = -100000;
-		RobotInfo[] enemies = rc.senseHostileRobots(rc.getLocation(), rc.getType().attackRadiusSquared);
-		if (rc.isWeaponReady() && enemies.length > 0)
+		boolean hasAttacked = false;
+		int lowesthealth = 0;
+		boolean equalhealth = true;
+		int lowestdistance = 0;
+		int attackindex = 0;
+		if (rc.isWeaponReady())
 		{
-			for (int i = 0; attackIndex < 0 && i<enemies.length; i++)
+			RobotInfo[] enemies = rc.senseHostileRobots(rc.getLocation(), rc.getType().attackRadiusSquared);
+			if (enemies.length > 0) 
 			{
-				if (enemies[i].type == RobotType.ZOMBIEDEN)
+				for (int i = 0; i<enemies.length; i++)
 				{
-					rc.broadcastSignal(rc.getType().sensorRadiusSquared*2);
-				}
-				if (rc.canAttackLocation(enemies[i].location))
-				{
-					if (attackIndex < 0 && (rc.getLocation()).isAdjacentTo(enemies[i].location))
+					if (!hasAttacked && (rc.getLocation()).isAdjacentTo(enemies[i].location))
 					{
-						attackIndex = i;
-						//TODO test this part - work on kiting
-						if ((enemies[i].type == RobotType.BIGZOMBIE || enemies[i].type == RobotType.STANDARDZOMBIE)
-								&& rc.getRoundNum()%2 == 0 && rc.isCoreReady())
+						boolean moved = false;
+						if(enemies[i].type == RobotType.STANDARDZOMBIE || enemies[i].type == RobotType.BIGZOMBIE)
 						{
-							moveAwayFromEnemy(rc, rc.getLocation().directionTo(enemies[i].location));
+							if(rc.getRoundNum()%2 == 0 && ((currentMode == TRANSITION_MODE) || (currentMode == INTRO_MODE)))
+							{
+								moved = moveAwayFromEnemies(rc);
+							}
+						}
+						if(!moved)
+						{
+							attackindex = i;
+							hasAttacked = true;
 						}
 					}
-					if (attackIndex < 0 && enemies[i].type == RobotType.BIGZOMBIE)
+					if (!hasAttacked)
 					{
-						attackIndex = i;
-					}
-					if (attackIndex < 0)
-					{
-						//equalHealth = equalHealth && enemies[i].health == enemies[lowestHealthIndex].health;
-						lowestDistanceIndex = rc.getLocation().distanceSquaredTo(enemies[i].location) < 
-							rc.getLocation().distanceSquaredTo(enemies[lowestDistanceIndex].location)? 
-									i : lowestDistanceIndex;	
-						//lowestHealthIndex = enemies[i].health < enemies[lowestHealthIndex].health? i: lowestHealthIndex;
+						equalhealth = equalhealth && enemies[i].health == enemies[lowesthealth].health;
+						lowestdistance = rc.getLocation().distanceSquaredTo(enemies[i].location) < 
+								rc.getLocation().distanceSquaredTo(enemies[lowestdistance].location)? i : lowestdistance;	
+						lowesthealth = enemies[i].health < enemies[lowesthealth].health? i: lowesthealth;
 					}
 				}
-			}
-			if(attackIndex < 0)
-			{
-				//attackIndex = equalHealth? lowestDistanceIndex : lowestHealthIndex;
-				attackIndex = lowestDistanceIndex;
-			}
-			if (attackIndex >= 0 && rc.isWeaponReady())
-			{
-				rc.attackLocation(enemies[attackIndex].location);
+				if(!hasAttacked)
+				{
+					attackindex = equalhealth? lowestdistance : lowesthealth;
+				}
+				rc.attackLocation(enemies[attackindex].location);
 			}
 		}
+		return hasAttacked;
 	}
-	//TODO Refine this method
-	private static boolean moveAwayFromEnemy(RobotController rc, Direction enemyDirection) 
+
+	private static boolean moveAwayFromEnemies(RobotController rc) throws GameActionException 
 	{
 		boolean moved = false;
-		try
-		{
-		Direction moveTo = oppositeDirection(enemyDirection);
-		if (rc.isCoreReady()) moveTowards(rc, moveTo);
-		} catch (GameActionException e) 
-		{
-			e.printStackTrace();
-		}
-		return moved;
-	
-	}
-	private static void moveAwayFromEnemies(RobotController rc) throws GameActionException 
-	{
+		if (!rc.isCoreReady()) return moved;
 		// TODO might want a different value for how far you sense enemies and 
 		// do a "center of mass" of enemies weighted by their attack values then
 		// move away from that?
-		RobotInfo[] enemies = rc.senseNearbyRobots(rc.getType().sensorRadiusSquared, myTeam.opponent());
+		RobotInfo[] enemies = rc.senseNearbyRobots(RobotType.SOLDIER.attackRadiusSquared, myTeam.opponent());
 		if (enemies.length > 0) {
 			Direction awayFrom = rc.getLocation().directionTo(enemies[0].location).opposite();
-			if (rc.canMove(awayFrom) && rc.isCoreReady())
-			{
+			if (rc.canMove(awayFrom)) {
 				rc.move(awayFrom);
 			}
 		}
+		return moved;
 	}
 
 	/**
 	 * Attempts to build a robot of the given type in a random direction (attempts all directions).
 	 * Only attempts building if rc has no core delay and has more parts than the threshold.
+	 * Also broadcasts the current mode and the location of the turtle corner to the unit
+	 * being built (and others within 1 square).
 	 * @param rc RobotController from which to build
 	 * @param buildType type of robot to build
 	 * @return true if buildType is built else false
@@ -605,6 +677,19 @@ public class RobotPlayer {
 			for (int i = 0; i < 8; i++) {
 				if (rc.canBuild(buildDir, buildType)) {
 					rc.build(buildDir, buildType);
+					rc.broadcastMessageSignal(SENDING_MODE, currentMode, ONE_SQUARE_RADIUS);
+					
+					if (!turtleCorner.equals(LOCATION_NONE)) {
+						rc.broadcastMessageSignal(SENDING_TURTLE_X, turtleCorner.x, ONE_SQUARE_RADIUS);
+						rc.broadcastMessageSignal(SENDING_TURTLE_Y, turtleCorner.y, ONE_SQUARE_RADIUS);						
+					}
+					
+					if (buildType.equals(RobotType.SCOUT)) {
+						for (MapLocation scoutKitingLoc : SCOUT_KITING_LOCATIONS) {
+							rc.broadcastMessageSignal(SENDING_SCOUT_KITING_LOCATION_X, scoutKitingLoc.x, ONE_SQUARE_RADIUS);
+							rc.broadcastMessageSignal(SENDING_SCOUT_KITING_LOCATION_Y, scoutKitingLoc.y, ONE_SQUARE_RADIUS);
+						}
+					}
 					return true;
 				}
 				buildDir = buildDir.rotateRight(); // try all directions clockwise
@@ -641,56 +726,78 @@ public class RobotPlayer {
 		}
 	}
 	
+	/**
+	 * Moves rc towards the opposite corner from turtleCorner. When the scout dies in that corner,
+	 * the zombies will inevitably be closer to the enemy team.
+	 * @param rc should be of RobotType scout
+	 * @throws GameActionException
+	 */
 	private static void leadZombiesToEnemy(RobotController rc) throws GameActionException {
 		//TODO stop anti-kiting
 		if (rc.isCoreReady()) {
-			if (rc.canMove(Direction.SOUTH_WEST)) {
-				rc.move(Direction.SOUTH_WEST);
-			}
+			Direction dirAwayFromTurtleCorner = rc.getLocation().directionTo(turtleCorner).opposite();
+			moveTowards(rc, dirAwayFromTurtleCorner);
 		}
 	}
 	
 	/**
 	 * Checks if rc can move in direction dir (runs isCoreReady and canMove). If so, moves.
 	 * If not, moves rc in any of the four directions nearest dir, if possible.
+	 * rc will not move to locations in RESERVED_LOCATIONS or if dir is OMNI or NONE
 	 * @param rc
 	 * @param dir
 	 * @return true if rc moves else false
 	 * @throws GameActionException 
 	 */
-	private static void moveTowards(RobotController rc, Direction dir) throws GameActionException {
-		if (rc.isCoreReady()) 
-		{
-			Direction[] nearDirections = {dir, dir.rotateRight(), dir.rotateLeft(),
-					dir.rotateRight().rotateRight(), dir.rotateLeft().rotateLeft(), 
-					dir.rotateRight().rotateRight().rotateRight(), dir.rotateLeft().rotateLeft().rotateLeft()};
-			for (Direction nearDir : nearDirections) 
-			{
-				if (rc.canMove(nearDir) && rc.isCoreReady())
-				{
-					rc.move(nearDir);
-				}
-			}
-			if (rc.isCoreReady() && rc.onTheMap(rc.getLocation().add(dir)) && rc.senseRubble(rc.getLocation().add(dir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) 
-			{
-				rc.clearRubble(dir);
+	private static boolean moveTowards(RobotController rc, Direction dir) throws GameActionException {
+		if (!rc.isCoreReady() || dir.equals(Direction.OMNI) || dir.equals(Direction.NONE)) return false;
+		Direction[] nearDirections = {dir, dir.rotateRight(), dir.rotateLeft(),
+				dir.rotateRight().rotateRight(), dir.rotateLeft().rotateLeft()};
+		for (Direction nearDir : nearDirections) {
+			if (rc.canMove(nearDir)) {
+				rc.move(nearDir);
+				return true;
 			}
 		}
+		if (!rc.getType().equals(RobotType.TTM) && 
+				rc.onTheMap(rc.getLocation().add(dir)) && rc.senseRubble(rc.getLocation().add(dir)) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
+			rc.clearRubble(dir);
+		}
+		return false;
 	}
 	
 	/**
-	 * 
+	 * If rc's core is ready, moves rc towards the first enemy sensed.
 	 * @param rc
 	 * @return true if rc moves else false
 	 * @throws GameActionException
 	 */
-	private static void moveTowardsNearestEnemy (RobotController rc) throws GameActionException {
+	private static boolean moveTowardsNearestEnemy (RobotController rc) throws GameActionException {
+		if(!rc.isCoreReady()) return false;
 		List<RobotInfo> enemies = Arrays.asList(rc.senseHostileRobots(rc.getLocation(), -1));
 		Optional<RobotInfo> nearestEnemy = enemies.stream().min((enemy1, enemy2) ->
 		rc.getLocation().distanceSquaredTo(enemy1.location) - rc.getLocation().distanceSquaredTo(enemy2.location));
 		if (nearestEnemy.isPresent()) {
-			moveTowards(rc, rc.getLocation().directionTo(nearestEnemy.get().location));
+			return moveTowards(rc, rc.getLocation().directionTo(nearestEnemy.get().location));
 		}
+		return false;
+	}
+	
+	private static boolean moveAwayFromReservedLocations(RobotController rc) throws GameActionException {
+		MapLocation myLocation = rc.getLocation();
+		if (!rc.isCoreReady() || !RESERVED_LOCATIONS.contains(myLocation)) return false;
+		MapLocation[] possibleMoves = MapLocation.getAllMapLocationsWithinRadiusSq(myLocation, ONE_SQUARE_RADIUS);
+		if (!turtleCorner.equals(LOCATION_NONE)) {
+			for (MapLocation possibleMove : possibleMoves) {
+				if (possibleMove.distanceSquaredTo(turtleCorner) > myLocation.distanceSquaredTo(turtleCorner)) {
+					if (rc.canMove(myLocation.directionTo(possibleMove))) {
+						rc.move(myLocation.directionTo(possibleMove));
+						return true;
+					}
+				}
+			}
+		}
+		return false;
 	}
 	
 	//TODO this method needs a lot of work...isn't doing things properly even if there's just an 
@@ -699,79 +806,38 @@ public class RobotPlayer {
 	private static boolean moveAwayFromArchons (RobotController rc) throws GameActionException 
 	{
 		if (!rc.isCoreReady()) return false;
-		double archonReserveDistance = Math.sqrt(rc.getRobotCount())*2; //todo make this more finessed 
-		List<RobotInfo> robots = Arrays.asList(rc.senseNearbyRobots((int)archonReserveDistance+1, myTeam));
+//		double archonReserveDistance = Math.sqrt(rc.getRobotCount())*2; //todo make this more finessed
+		List<RobotInfo> alliedRobots = Arrays.asList(rc.senseNearbyRobots(ARCHON_RESERVED_DISTANCE_SQUARED+1, myTeam));
 		List<RobotInfo> archons = new ArrayList<>();
-		List<Direction> validDirections = new ArrayList<>();
-		//for (int i = 0; i<DIRECTIONS.length; i++)
-		//{
-		//	validDirections.add(DIRECTIONS[i]);
-		//}
-		for (RobotInfo robot : robots) {
-			if (robot.type == RobotType.ARCHON) {
+		for (RobotInfo robot : alliedRobots) {
+			if (robot.type.equals(RobotType.ARCHON)) {
 				archons.add(robot);
 			}
 		}
+		
 		boolean tooClose = false;
+		int distanceFromArchon = Integer.MAX_VALUE;
 		MapLocation myLocation = rc.getLocation();
 		for (RobotInfo archon : archons) {
-			if (myLocation.distanceSquaredTo(archon.location) < archonReserveDistance) {
+			if (myLocation.distanceSquaredTo(archon.location) < ARCHON_RESERVED_DISTANCE_SQUARED) {
 				tooClose = true;
+				distanceFromArchon = myLocation.distanceSquaredTo(archon.location);
 				break;
 			}
 		}
 		
-		if (!tooClose) 
+		if (!tooClose)
 		{
 			return false;
 		}
-		//for (int i=0; i<validDirections.size();)
-		//{
-		//	for(RobotInfo arch: archons)
-		//	{
-		//		if(validDirections.get(i) == rc.getLocation().directionTo(arch.location))
-		//		{
-		//			validDirections.remove(i);
-		//			if (i < validDirections.size())
-		//			{
-		//				validDirections.remove(i);
-		//			}
-		//			if (i-1 < validDirections.size() && validDirections.size()>0)
-		//			{
-		//				if(i-1>0)
-		//				{
-		//					validDirections.remove(i-1);
-		//				}
-		//				else
-		//				{
-	    //				validDirections.remove(validDirections.size()-1);
-		//				}
-		//			}
-		//		}
-		//		else
-		//		{
-		//			i++;
-		//		}
-		//	}
-		//}
-		//if(validDirections.size()>0)
-		//{
-		//	for (int i=0; i<validDirections.size(); i++)
-		//	{
-		//		if(rc.canMove(validDirections.get(i)))
-		//		{
-		//			return moveTowards(rc, validDirections.get(i));
-		//		}
-		//	}
-		//}
-		//
-		List<MapLocation> possibleMoveLocations = Arrays.asList(MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), 2));
+		
+		List<MapLocation> possibleMoveLocations = Arrays.asList(MapLocation.getAllMapLocationsWithinRadiusSq(myLocation, ONE_SQUARE_RADIUS));
 		List<MapLocation> goodMoveLocations = new ArrayList<>();
 		
 		for (MapLocation loc : possibleMoveLocations) {
 			boolean goodLocation = true;
 			for (RobotInfo archon : archons) {
-				if (loc.distanceSquaredTo(archon.location) < archonReserveDistance) {
+				if (loc.distanceSquaredTo(archon.location) >= distanceFromArchon) {
 					goodLocation = false;
 					break;
 				}
@@ -782,16 +848,9 @@ public class RobotPlayer {
 		}
 		
 		for (MapLocation loc : goodMoveLocations) {
-			if (rc.canMove(rc.getLocation().directionTo(loc))) {
-				rc.move(rc.getLocation().directionTo(loc));
+			if (rc.canMove(myLocation.directionTo(loc))) {
+				rc.move(myLocation.directionTo(loc));
 				return true;
-			}
-		}
-		for(int i=0; i<DIRECTIONS.length; i++)
-		{
-			if(rc.onTheMap(rc.getLocation().add(DIRECTIONS[i])))
-			{
-				moveTowards(rc, DIRECTIONS[i]);
 			}
 		}
 		return false;
@@ -844,19 +903,19 @@ public class RobotPlayer {
 	}
 	
 	/**
-	 * 
-	 * @param desiredDir
-	 * @param otherDir
-	 * @return Integer.MAX_VALUE if otherDir can't be rotated to desiredDir or... TODO
+	 * @param firstDirection
+	 * @param secondDirection
+	 * @return the minimum number of rotations required to transform firstDirection into secondDirection or
+	 * Integer.MAX_VALUE if firstDirection can't be rotated to secondDirection
 	 */
-	private static double distanceFromDirection(Direction desiredDir, Direction otherDir) {
+	private static double distanceFromDirection(Direction firstDirection, Direction secondDirection) {
 		double[] weights = {0, 3, 8, 15, 25};
 //		double[] weights = {0.75, 0.8, .85, .9, .95};
 //		double[] weights = {1, 1.0001, 1.0002, 1.0003, 1.0004};
-		Direction leftRotation = otherDir;
-		Direction rightRotation = otherDir;
+		Direction leftRotation = secondDirection;
+		Direction rightRotation = secondDirection;
 		for (int i = 0; i <= 4; i++) {
-			if (desiredDir.equals(leftRotation) || desiredDir.equals(rightRotation)) {
+			if (firstDirection.equals(leftRotation) || firstDirection.equals(rightRotation)) {
 				return weights[i];
 			}
 			leftRotation = leftRotation.rotateLeft();
@@ -873,17 +932,6 @@ public class RobotPlayer {
 		SIGNAL_TO_DIRECTION.put(SOUTH_EAST_CORNER, Direction.SOUTH_EAST);
 		SIGNAL_TO_DIRECTION.put(SOUTH_WEST_CORNER, Direction.SOUTH_WEST);
 	}
-	private static Direction getScoutTargetDirection(RobotController rc) {
-		Signal[] signals =  rc.emptySignalQueue();
-		for (Signal signal : signals) {
-			if (signal.getMessage() != null && signal.getTeam().equals(myTeam)) {
-				if (signal.getMessage()[0] == SENDING_TARGET_DIRECTION) {
-					return SIGNAL_TO_DIRECTION.get(signal.getMessage()[1]);
-				}
-			}
-		}
-		return Direction.NONE;
-	}
 	
 	private static final Map<Direction, Integer> DIRECTION_TO_SIGNAL = new HashMap<Direction, Integer>();
 	static {
@@ -892,9 +940,8 @@ public class RobotPlayer {
 		DIRECTION_TO_SIGNAL.put(Direction.SOUTH_WEST, SOUTH_WEST_CORNER);
 		DIRECTION_TO_SIGNAL.put(Direction.SOUTH_EAST, SOUTH_EAST_CORNER);
 	}
-	
 	/**
-	 * Currently we use two pairs of intro scouts, so this method identifies two opposite corners to which
+	 * Currently we use two intro scouts, so this method identifies two opposite corners to which
 	 * those scouts should be sent. So that no extra communication is needed, one archon will calculate
 	 * one of the corners as closest for him and all of the other archons will calculate the other corner
 	 * so that the two scouts are guaranteed to move towards opposite corners.
@@ -922,11 +969,19 @@ public class RobotPlayer {
 		return toTarget;
 	}
 	
+	/**
+	 * 
+	 * @param rc
+	 * @param locs
+	 * @param dir direction in which to find the farthest location
+	 * @return the location from locs which is farthest in direction dir or LOCATION_NONE if none such
+	 * @throws GameActionException
+	 */
 	private static MapLocation getFurthestInDirection(RobotController rc, MapLocation[] locs, Direction dir) throws GameActionException {
-		MapLocation furthest = null;
+		MapLocation furthest = LOCATION_NONE;
 		List<Direction> directionsTowards = Arrays.asList(dir, dir.rotateRight(), dir.rotateLeft());
 		for (MapLocation loc : locs) {
-			if (furthest == null) {
+			if (furthest.equals(LOCATION_NONE)) {
 				if (rc.onTheMap(loc)) {
 					furthest = loc;					
 				}
@@ -983,130 +1038,37 @@ public class RobotPlayer {
 		return false;
 	}
 	
-	private static void archonIntroMode(RobotController rc) throws GameActionException 
-	{
-		processIntroMessageSignals(rc);
-		// TODO: what if, after an appropriate number of turns, the scouts haven't reported anything?
-		// should we have all of the archons move together in some direction and hope it is towards a corner?
-		if (SCOUTED_CORNERS.size() >= 2) {
-			List<Direction> crossDirections = Arrays.asList(Direction.NORTH_WEST,
-					Direction.NORTH_EAST, Direction.SOUTH_WEST, Direction.SOUTH_EAST);
-			if (!(crossDirections.contains(SCOUTED_CORNERS.get(0)
-					.directionTo(SCOUTED_CORNERS.get(1))) || SCOUTED_CORNERS.size() > 2)) {
-				// TODO if they are not opposite, make a scout and send to one of the remaining corners
-			} else {
-				MapLocation[] newCorners = {new MapLocation(SCOUTED_CORNERS.get(0).x, SCOUTED_CORNERS.get(1).y),
-						new MapLocation(SCOUTED_CORNERS.get(1).x, SCOUTED_CORNERS.get(0).y)};
-				for (MapLocation corner : newCorners) {
-					if(!SCOUTED_CORNERS.contains(corner)) {
-						SCOUTED_CORNERS.add(corner);
-					}
-				}
-				currentMode = TRANSITION_MODE;
-				turtleCorner = findBestTurtleCorner(rc);
-				for (MapLocation corner : SCOUTED_CORNERS) {
-					if (crossDirections.contains(turtleCorner.directionTo(corner))) {
-						fullMapRadius = turtleCorner.distanceSquaredTo(corner);
-						break;
-					}
-				}
-				// TODO (also broadcast this locally to scouts when you make them? So they can message
-				// back more efficiently, if they have to)
-				rc.broadcastMessageSignal(SENDING_MODE, TRANSITION_MODE, rc.getType().sensorRadiusSquared);
-				rc.broadcastMessageSignal(SENDING_TURTLE_X, turtleCorner.x, rc.getType().sensorRadiusSquared);
-				rc.broadcastMessageSignal(SENDING_TURTLE_Y, turtleCorner.y, rc.getType().sensorRadiusSquared);
+	private static boolean isFarEnoughFromArchons(RobotController rc) {
+		RobotInfo[] nearbyTeam = rc.senseNearbyRobots(ARCHON_RESERVED_DISTANCE_SQUARED, myTeam);
+		for (RobotInfo robot : nearbyTeam) {
+			if (robot.type.equals(RobotType.ARCHON)) { // too close to archons
+				return false;
 			}
 		}
-		// TODO gathering parts (need locations from scouts first...)
-		if (rc.getRobotCount() - numArchons < NUM_INTRO_SCOUTS) {
-			tryToBuild(rc, RobotType.SCOUT);
-			Direction directionToTargetCorner = calculateDirectionToClosestCorner(rc);
-			rc.broadcastMessageSignal(SENDING_TARGET_DIRECTION, DIRECTION_TO_SIGNAL.get(directionToTargetCorner), 4);
-		} else {
-			if (rand.nextDouble() > 1.66666) { // 2:1 soldier:guard ratio //TODO fix guard code
-				tryToBuild(rc, RobotType.GUARD);
-			} else {
-				tryToBuild(rc, RobotType.SOLDIER);
-			}
-		}
-		
-	}
-	/**
-	 * Archons automatically collect parts on their current location. This method checks for nearby parts within a
-	 * radius squared distance of 9 and moves towards the nearest parts.
-	 * @param rc must be archon
-	 * @return whether parts were collected
-	 * @throws GameActionException 
-	 */
-	private static void collectParts(RobotController rc) throws GameActionException 
-	{
-		int lowestDistanceIndex = 0;
-		MapLocation myLocation = rc.getLocation();
-		MapLocation[] parts = rc.sensePartLocations(PART_COLLECTION_RADIUS_SQUARED);
-		for (int i=0; i < parts.length; i++)
-		{
-			if (myLocation.distanceSquaredTo(parts[i]) < myLocation.distanceSquaredTo(parts[lowestDistanceIndex]))
-			{
-				lowestDistanceIndex = i;
-			}
-			if (myLocation.distanceSquaredTo(parts[i]) == myLocation.distanceSquaredTo(parts[lowestDistanceIndex]))
-			{
-				lowestDistanceIndex = rc.senseParts(parts[i]) > rc.senseParts(parts[lowestDistanceIndex]) ? 
-																						i : lowestDistanceIndex;
-			}
-		}
-		if (rc.isCoreReady() && parts.length > 0)
-		{
-			moveTowards(rc, myLocation.directionTo(parts[lowestDistanceIndex]));
-		}
+		return true;
 	}
 	
 	/**
-	 * Archon checks within a squared radius of 9 for neutral units. If neutral archon, always head toward
-	 * and activate. If no neutral archons are detected, activate adjacent units. If no adjacent units,
-	 * move towards nearest neutral unit.
-	 * @param rc must be archon
-	 * @return if activated a unit
-	 * @throws GameActionException 
+	 * If rc's core is ready, clears rubble from the first location sensed with
+	 * rubble > RUBBLE_LOWER_CLEAR_THRESHOLD.
+	 * @param rc
+	 * @return true if rubble is cleared otherwise false
+	 * @throws GameActionException
 	 */
-	private static void activateUnits(RobotController rc) throws GameActionException 
-	{
-		int lowestDistanceIndex = 0;
-		MapLocation myLocation = rc.getLocation();
-		MapLocation robotLocation;
-		RobotInfo[] robots = rc.senseNearbyRobots(ACTIVATION_RADIUS_SQUARED, Team.NEUTRAL);
-		for (int i=0; i < robots.length; i++)
-		{
-			robotLocation = robots[i].location;
-			if (robots[i].type == RobotType.ARCHON)
-			{
-				if (myLocation.isAdjacentTo(robotLocation) && rc.isCoreReady())
-				{
-					rc.activate(robotLocation);
+	private static boolean clearNearbyRubble(RobotController rc) throws GameActionException {
+		if (!rc.isCoreReady()) return false;
+		MapLocation[] nearbyLocs = MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), ONE_SQUARE_RADIUS);
+		for (MapLocation nearbyLoc : nearbyLocs) {
+			if (rc.senseRubble(nearbyLoc) > RUBBLE_LOWER_CLEAR_THRESHOLD) {
+				Direction directionToRubble = rc.getLocation().directionTo(nearbyLoc);
+				if (directionToRubble.equals(Direction.OMNI)) { // shouldn't be necessary but is
+					rc.clearRubble(Direction.NONE);
+					return true;
 				}
-				else
-				{
-					moveTowards(rc, myLocation.directionTo(robotLocation));
-				}
-				break;
-			}
-			if (robots[i].type != RobotType.ARCHON)
-			{
-				lowestDistanceIndex = myLocation.distanceSquaredTo(robotLocation) 
-						< myLocation.distanceSquaredTo(robots[lowestDistanceIndex].location) ? i : lowestDistanceIndex;
+				rc.clearRubble(directionToRubble);
+				return true;
 			}
 		}
-		if (rc.isCoreReady() && robots.length > 0)
-		{
-			if (myLocation.isAdjacentTo(robots[lowestDistanceIndex].location))
-			{
-				rc.activate(robots[lowestDistanceIndex].location);
-			}
-			else
-			{
-				moveTowards(rc, myLocation.directionTo(robots[lowestDistanceIndex].location));
-			}
-		}
+		return false;
 	}
-	//smile
 }
