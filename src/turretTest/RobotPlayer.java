@@ -998,7 +998,8 @@ public class RobotPlayer {
 	 * @return the location of the corner in the given direction or LOCATION_NONE if it is not a corner
 	 * @throws GameActionException
 	 */
-	private static MapLocation checkForCorner(RobotController rc, Direction dirToCorner) throws GameActionException {
+	private static MapLocation checkForCorner(RobotController rc, Direction dirToCorner) throws GameActionException 
+	{
 		int senseRadiusMinusOneSquared = (int) Math.pow(Math.sqrt(rc.getType().sensorRadiusSquared)-1, 2);
 		// so that when you add one below to check for a corner, you can still sense the +1 location
 		MapLocation[] nearby = MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), senseRadiusMinusOneSquared);

@@ -900,12 +900,16 @@ public class RobotPlayer {
 	private static MapLocation getFurthestInDirection(RobotController rc, MapLocation[] locs, Direction dir) throws GameActionException {
 		MapLocation furthest = LOCATION_NONE;
 		List<Direction> directionsTowards = Arrays.asList(dir, dir.rotateRight(), dir.rotateLeft());
-		for (MapLocation loc : locs) {
-			if (furthest.equals(LOCATION_NONE)) {
-				if (rc.onTheMap(loc)) {
+		for (MapLocation loc : locs) 
+		{
+			if (furthest.equals(LOCATION_NONE)) 
+			{
+				if (rc.onTheMap(loc)) 
+				{
 					furthest = loc;					
 				}
-			} else if (directionsTowards.contains(furthest.directionTo(loc)) && rc.onTheMap(loc)) {
+			} else if (directionsTowards.contains(furthest.directionTo(loc)) && rc.onTheMap(loc)) 
+			{
 				furthest = loc;
 			}
 		}
@@ -924,19 +928,16 @@ public class RobotPlayer {
 		// so that when you add one below to check for a corner, you can still sense the +1 location
 		MapLocation[] nearby = MapLocation.getAllMapLocationsWithinRadiusSq(rc.getLocation(), senseRadiusMinusOneSquared);
 		boolean isCorner = true;
-		MapLocation corner;
+		MapLocation corner = getFurthestInDirection(rc, nearby, dirToCorner);
 		Direction[] nearDirections = {dirToCorner, dirToCorner.rotateLeft(), dirToCorner.rotateRight()};
-		corner = getFurthestInDirection(rc, nearby, dirToCorner);
-		for (Direction dir : nearDirections) {
-			if (rc.onTheMap(corner.add(dir))) {
+		for (Direction dir : nearDirections) 
+		{
+			if (rc.onTheMap(corner.add(dir))) 
+			{
 				isCorner = false;
 			}
 		}
-		if (isCorner) {
-			return corner;
-		} else {
-			return LOCATION_NONE;
-		}
+		return isCorner ? corner : LOCATION_NONE; 
 	}
 	
 	/**
@@ -1141,7 +1142,7 @@ public class RobotPlayer {
 		for (Direction dir : DIRECTIONS)
 		{
 			corner = checkForCorner(rc, dir);
-			if (corner != LOCATION_NONE)
+			if (!corner.equals(LOCATION_NONE))
 			{
 				turtleCorner = corner;
 				break;
